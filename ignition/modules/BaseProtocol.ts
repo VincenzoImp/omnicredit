@@ -1,5 +1,6 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
-import { ethers } from "hardhat";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 /**
  * Base Protocol Module - Deploys core protocol contracts on Base chain
@@ -14,12 +15,12 @@ import { ethers } from "hardhat";
  */
 const BaseProtocolModule = buildModule("BaseProtocol", (m) => {
   // Get deployment parameters with defaults for testing
-  const pythAddress = m.getParameter("pythAddress", ethers.ZeroAddress);
-  const usdcAddress = m.getParameter("usdcAddress", ethers.ZeroAddress);
-  const lzEndpoint = m.getParameter("lzEndpoint", ethers.ZeroAddress);
-  const lzDelegate = m.getParameter("lzDelegate", ethers.ZeroAddress);
-  const poolManager = m.getParameter("poolManager", ethers.ZeroAddress);
-  const feeCollector = m.getParameter("feeCollector", ethers.ZeroAddress);
+  const pythAddress = m.getParameter("pythAddress", ZERO_ADDRESS);
+  const usdcAddress = m.getParameter("usdcAddress", ZERO_ADDRESS);
+  const lzEndpoint = m.getParameter("lzEndpoint", ZERO_ADDRESS);
+  const lzDelegate = m.getParameter("lzDelegate", ZERO_ADDRESS);
+  const poolManager = m.getParameter("poolManager", ZERO_ADDRESS);
+  const feeCollector = m.getParameter("feeCollector", ZERO_ADDRESS);
 
   // Phase 1: Core Building Blocks
   console.log("Deploying Phase 1: Core Building Blocks...");
@@ -74,31 +75,25 @@ const BaseProtocolModule = buildModule("BaseProtocol", (m) => {
   });
 
   // Phase 4: Hooks (optional, only if Uniswap V4 is available)
-  let liquidationHook = null;
-  if (poolManager !== ethers.ZeroAddress) {
-    console.log("Deploying Phase 4: Uniswap V4 Hooks...");
-    liquidationHook = m.contract("LiquidationHook", [poolManager], {
-      id: "LiquidationHook"
-    });
-  }
-
-  // Return all deployed contracts for post-deployment configuration
-  return {
+  const result: any = {
     creditScore,
     priceOracle,
     feeBasedLimits,
     protocolCore,
     liquidationManager,
     crossChainCoordinator,
-    liquidationHook,
-    // Include parameter addresses for reference
-    pythAddress,
-    usdcAddress,
-    lzEndpoint,
-    lzDelegate,
-    poolManager,
-    feeCollector
   };
+
+  // For now, skip LiquidationHook deployment as it requires Uniswap V4 PoolManager
+  // Uncomment when PoolManager is available:
+  // if (poolManager !== ZERO_ADDRESS) {
+  //   console.log("Deploying Phase 4: Uniswap V4 Hooks...");
+  //   result.liquidationHook = m.contract("LiquidationHook", [poolManager], {
+  //     id: "LiquidationHook"
+  //   });
+  // }
+
+  return result;
 });
 
 export default BaseProtocolModule;

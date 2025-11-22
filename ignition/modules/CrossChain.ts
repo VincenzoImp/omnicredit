@@ -1,5 +1,6 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
-import { ethers } from "hardhat";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 /**
  * Cross-Chain Module - Deploys contracts for satellite chains
@@ -12,20 +13,21 @@ import { ethers } from "hardhat";
 const CrossChainModule = buildModule("CrossChain", (m) => {
   // Get deployment parameters
   const chainType = m.getParameter("chainType", "satellite"); // "ethereum" | "satellite" | "non-usdc"
-  const lzEndpoint = m.getParameter("lzEndpoint", ethers.ZeroAddress);
-  const lzDelegate = m.getParameter("lzDelegate", ethers.ZeroAddress);
+  const lzEndpoint = m.getParameter("lzEndpoint", ZERO_ADDRESS);
+  const lzDelegate = m.getParameter("lzDelegate", ZERO_ADDRESS);
   const coordinatorEid = m.getParameter("coordinatorEid", 0); // Base chain endpoint ID
-  const usdcAddress = m.getParameter("usdcAddress", ethers.ZeroAddress);
+  const usdcAddress = m.getParameter("usdcAddress", ZERO_ADDRESS);
 
-  let collateralVault = null;
-  let usdcOFTAdapter = null;
-  let usdcOmnitoken = null;
+  const result: any = {};
 
-  if (chainType === "satellite") {
+  // Use string comparison for chainType parameter
+  const chainTypeValue = typeof chainType === "string" ? chainType : "satellite";
+
+  if (chainTypeValue === "satellite") {
     // Deploy CollateralVault for satellite chains (Arbitrum, Optimism, etc.)
     console.log("Deploying CollateralVault for satellite chain...");
 
-    collateralVault = m.contract("CollateralVault", [
+    result.collateralVault = m.contract("CollateralVault", [
       lzEndpoint,      // _endpoint
       lzDelegate,      // _delegate
       coordinatorEid   // _coordinatorEid (Base chain EID)
@@ -33,47 +35,38 @@ const CrossChainModule = buildModule("CrossChain", (m) => {
       id: "CollateralVault"
     });
 
-  } else if (chainType === "ethereum") {
+  } else if (chainTypeValue === "ethereum") {
     // Deploy USDCOFTAdapter for Ethereum (wraps native USDC)
     console.log("Deploying USDCOFTAdapter for Ethereum...");
 
-    if (usdcAddress === ethers.ZeroAddress) {
+    const usdcAddr = typeof usdcAddress === "string" ? usdcAddress : ZERO_ADDRESS;
+    if (usdcAddr === ZERO_ADDRESS) {
       throw new Error("USDC address required for Ethereum deployment");
     }
 
-    usdcOFTAdapter = m.contract("USDCOFTAdapter", [
-      usdcAddress,     // _token (native USDC)
+    result.usdcOFTAdapter = m.contract("USDCOFTAdapter", [
+      usdcAddr,        // _token (native USDC)
       lzEndpoint,      // _lzEndpoint
       lzDelegate       // _delegate
     ], {
       id: "USDCOFTAdapter"
     });
 
-  } else if (chainType === "non-usdc") {
+  } else if (chainTypeValue === "non-usdc") {
     // Deploy USDCOmnitoken for chains without native USDC
     console.log("Deploying USDCOmnitoken for non-USDC chain...");
 
-    usdcOmnitoken = m.contract("USDCOmnitoken", [
+    result.usdcOmnitoken = m.contract("USDCOmnitoken", [
       lzEndpoint,      // _lzEndpoint
       lzDelegate       // _delegate
     ], {
       id: "USDCOmnitoken"
     });
   } else {
-    throw new Error(`Unknown chain type: ${chainType}`);
+    throw new Error(`Unknown chain type: ${chainTypeValue}`);
   }
 
-  return {
-    collateralVault,
-    usdcOFTAdapter,
-    usdcOmnitoken,
-    // Include parameters for reference
-    chainType,
-    lzEndpoint,
-    lzDelegate,
-    coordinatorEid,
-    usdcAddress
-  };
+  return result;
 });
 
 export default CrossChainModule;

@@ -1,8 +1,12 @@
 import dotenv from 'dotenv';
+import hardhatIgnition from '@nomicfoundation/hardhat-ignition';
+import hardhatVerify from '@nomicfoundation/hardhat-verify';
+
 dotenv.config();
 
 /** @type {import('hardhat/types').HardhatUserConfig} */
 const config = {
+  plugins: [hardhatIgnition, hardhatVerify],
   solidity: {
     version: "0.8.28",
     settings: {
