@@ -209,9 +209,6 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
         if (!auction.isActive) revert AuctionNotActive();
         if (address(poolManager) == address(0)) revert NoPoolManager();
 
-        // Calculate current bonus (unused in current implementation)
-        uint256 currentBonus = getCurrentBonus(auctionId);
-
         // Mark auction as complete
         auction.isActive = false;
 

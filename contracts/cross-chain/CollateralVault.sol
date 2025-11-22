@@ -207,18 +207,15 @@ contract CollateralVault is OApp, ReentrancyGuard {
     /**
      * @notice Receive messages from coordinator (for withdrawal approvals)
      * @param _origin Origin information
-     * @param _guid Message GUID
      * @param _message Encoded message
-     * @param _executor Executor address
-     * @param _extraData Extra data
      * @dev This allows coordinator on Base to approve collateral withdrawals
      */
     function _lzReceive(
         Origin calldata _origin,
-        bytes32 _guid,
+        bytes32 /* _guid */,
         bytes calldata _message,
-        address _executor,
-        bytes calldata _extraData
+        address /* _executor */,
+        bytes calldata /* _extraData */
     ) internal override {
         // Verify message is from coordinator
         require(_origin.srcEid == coordinatorEid, "Invalid source");
