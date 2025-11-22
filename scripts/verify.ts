@@ -59,19 +59,35 @@ class DeploymentVerifier {
     console.log("\n=== Verifying Base Chain Deployment ===\n");
 
     try {
-      // Load deployment artifacts
-      const deployment = require(`../ignition/deployments/chain-${this.config.chainId}/deployed_addresses.json`);
+      // Load deployment addresses
+      const fs = await import("fs");
+      const path = await import("path");
+      const addressesPath = path.join(process.cwd(), "deployments", `${this.networkName}-addresses.json`);
+
+      if (!fs.existsSync(addressesPath)) {
+        this.addResult("Deployment addresses file exists", false, { 
+          message: `File not found: ${addressesPath}` 
+        });
+        return;
+      }
+
+      const addressesData = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
+      
+      if (!addressesData.BaseProtocol) {
+        this.addResult("BaseProtocol addresses found", false);
+        return;
+      }
 
       // 1. Check core contracts deployment
       console.log("Checking contract deployments...");
 
       const contracts = {
-        creditScore: deployment["BaseProtocol#CreditScore"],
-        priceOracle: deployment["BaseProtocol#PriceOracle"],
-        feeBasedLimits: deployment["BaseProtocol#FeeBasedLimits"],
-        protocolCore: deployment["BaseProtocol#ProtocolCore"],
-        liquidationManager: deployment["BaseProtocol#LiquidationManager"],
-        crossChainCoordinator: deployment["BaseProtocol#CrossChainCoordinator"]
+        creditScore: addressesData.BaseProtocol.CreditScore,
+        priceOracle: addressesData.BaseProtocol.PriceOracle,
+        feeBasedLimits: addressesData.BaseProtocol.FeeBasedLimits,
+        protocolCore: addressesData.BaseProtocol.ProtocolCore,
+        liquidationManager: addressesData.BaseProtocol.LiquidationManager,
+        crossChainCoordinator: addressesData.BaseProtocol.CrossChainCoordinator
       };
 
       for (const [name, address] of Object.entries(contracts)) {
@@ -181,12 +197,28 @@ class DeploymentVerifier {
     console.log("\n=== Verifying Satellite Chain Deployment ===\n");
 
     try {
-      // Load deployment artifacts
-      const deployment = require(`../ignition/deployments/chain-${this.config.chainId}/deployed_addresses.json`);
+      // Load deployment addresses
+      const fs = await import("fs");
+      const path = await import("path");
+      const addressesPath = path.join(process.cwd(), "deployments", `${this.networkName}-addresses.json`);
+
+      if (!fs.existsSync(addressesPath)) {
+        this.addResult("Deployment addresses file exists", false, { 
+          message: `File not found: ${addressesPath}` 
+        });
+        return;
+      }
+
+      const addressesData = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
+      
+      if (!addressesData.CrossChain) {
+        this.addResult("CrossChain addresses found", false);
+        return;
+      }
 
       // Check CollateralVault deployment
-      if (deployment["CrossChain#CollateralVault"]) {
-        const vaultAddress = deployment["CrossChain#CollateralVault"];
+      if (addressesData.CrossChain.CollateralVault) {
+        const vaultAddress = addressesData.CrossChain.CollateralVault;
         const isDeployed = await this.isDeployed(vaultAddress);
         this.addResult("CollateralVault deployed", isDeployed, { address: vaultAddress });
 
@@ -207,8 +239,8 @@ class DeploymentVerifier {
       }
 
       // Check USDCOFTAdapter deployment (Ethereum)
-      if (deployment["CrossChain#USDCOFTAdapter"]) {
-        const adapterAddress = deployment["CrossChain#USDCOFTAdapter"];
+      if (addressesData.CrossChain.USDCOFTAdapter) {
+        const adapterAddress = addressesData.CrossChain.USDCOFTAdapter;
         const isDeployed = await this.isDeployed(adapterAddress);
         this.addResult("USDCOFTAdapter deployed", isDeployed, { address: adapterAddress });
 
@@ -223,8 +255,8 @@ class DeploymentVerifier {
       }
 
       // Check USDCOmnitoken deployment (non-USDC chains)
-      if (deployment["CrossChain#USDCOmnitoken"]) {
-        const tokenAddress = deployment["CrossChain#USDCOmnitoken"];
+      if (addressesData.CrossChain.USDCOmnitoken) {
+        const tokenAddress = addressesData.CrossChain.USDCOmnitoken;
         const isDeployed = await this.isDeployed(tokenAddress);
         this.addResult("USDCOmnitoken deployed", isDeployed, { address: tokenAddress });
       }
@@ -308,8 +340,9 @@ class DeploymentVerifier {
  */
 async function main() {
   // Get network from Hardhat
+  const hre = await import("hardhat");
   const network = await ethers.provider.getNetwork();
-  const networkName = (await ethers.provider.getNetwork()).name;
+  const networkName = hre.network.name;
 
   console.log(`\n🔍 Verifying OmniCredit Protocol Deployment`);
   console.log(`   Network: ${networkName}`);

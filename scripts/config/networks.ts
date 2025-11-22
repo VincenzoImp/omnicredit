@@ -61,7 +61,7 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
     isTestnet: true,
     isBaseChain: true,
 
-    // Base Sepolia testnet addresses (UPDATE THESE)
+    // Base Sepolia testnet addresses
     pythAddress: "0x2880aB155794e7179c9eE2e38200202908C17B43", // Pyth on Base Sepolia
     usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // USDC on Base Sepolia
     lzEndpoint: "0x6EDCE65403992e310A62460808c4b910D972f10f", // LayerZero V2 on Base Sepolia
@@ -92,120 +92,6 @@ export const NETWORKS: { [key: string]: NetworkConfig } = {
       maxPriceAge: 300,
       maxConfidenceRatio: 500,
     }
-  },
-
-  "arbitrumSepolia": {
-    chainId: 421614,
-    name: "Arbitrum Sepolia",
-    isTestnet: true,
-    isBaseChain: false,
-
-    // Arbitrum Sepolia testnet addresses
-    pythAddress: "0x2880aB155794e7179c9eE2e38200202908C17B43", // Pyth on Arbitrum Sepolia
-    usdcAddress: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d", // USDC on Arbitrum Sepolia
-    lzEndpoint: "0x6EDCE65403992e310A62460808c4b910D972f10f", // LayerZero V2 on Arbitrum Sepolia
-    lzEndpointId: 40231, // Arbitrum Sepolia endpoint ID
-
-    config: {
-      maxPriceAge: 300,
-      maxConfidenceRatio: 500,
-    }
-  },
-
-  "optimismSepolia": {
-    chainId: 11155420,
-    name: "Optimism Sepolia",
-    isTestnet: true,
-    isBaseChain: false,
-
-    // Optimism Sepolia testnet addresses
-    pythAddress: "0x2880aB155794e7179c9eE2e38200202908C17B43", // Pyth on Optimism Sepolia
-    usdcAddress: "0x5fd84259d66Cd46123540766Be93DFE6D43130D7", // USDC on Optimism Sepolia
-    lzEndpoint: "0x6EDCE65403992e310A62460808c4b910D972f10f", // LayerZero V2 on Optimism Sepolia
-    lzEndpointId: 40232, // Optimism Sepolia endpoint ID
-
-    config: {
-      maxPriceAge: 300,
-      maxConfidenceRatio: 500,
-    }
-  },
-
-  // ============ MAINNET CONFIGURATIONS ============
-  // TODO: Add mainnet configurations when ready
-
-  "base": {
-    chainId: 8453,
-    name: "Base",
-    isTestnet: false,
-    isBaseChain: true,
-
-    // Base mainnet addresses (TODO: UPDATE THESE)
-    pythAddress: "", // TODO: Add Pyth mainnet address
-    usdcAddress: "", // TODO: Add USDC mainnet address
-    lzEndpoint: "", // TODO: Add LayerZero V2 mainnet endpoint
-    lzEndpointId: 30184, // Base mainnet endpoint ID
-    poolManager: "", // TODO: Add Uniswap V4 PoolManager
-
-    config: {
-      feeCollector: "", // TODO: Set fee collector address
-      maxPriceAge: 120, // 2 minutes (stricter for mainnet)
-      maxConfidenceRatio: 300, // 3% (stricter for mainnet)
-      liquidationBonus: 800, // 8%
-    }
-  },
-
-  "mainnet": {
-    chainId: 1,
-    name: "Ethereum",
-    isTestnet: false,
-    isBaseChain: false,
-
-    // Ethereum mainnet addresses (TODO: UPDATE THESE)
-    pythAddress: "", // TODO: Add Pyth mainnet address
-    usdcAddress: "", // TODO: Add USDC mainnet address
-    lzEndpoint: "", // TODO: Add LayerZero V2 mainnet endpoint
-    lzEndpointId: 30101, // Ethereum mainnet endpoint ID
-
-    config: {
-      maxPriceAge: 120,
-      maxConfidenceRatio: 300,
-    }
-  },
-
-  "arbitrum": {
-    chainId: 42161,
-    name: "Arbitrum One",
-    isTestnet: false,
-    isBaseChain: false,
-
-    // Arbitrum mainnet addresses (TODO: UPDATE THESE)
-    pythAddress: "", // TODO: Add Pyth mainnet address
-    usdcAddress: "", // TODO: Add USDC mainnet address
-    lzEndpoint: "", // TODO: Add LayerZero V2 mainnet endpoint
-    lzEndpointId: 30110, // Arbitrum mainnet endpoint ID
-
-    config: {
-      maxPriceAge: 120,
-      maxConfidenceRatio: 300,
-    }
-  },
-
-  "optimism": {
-    chainId: 10,
-    name: "Optimism",
-    isTestnet: false,
-    isBaseChain: false,
-
-    // Optimism mainnet addresses (TODO: UPDATE THESE)
-    pythAddress: "", // TODO: Add Pyth mainnet address
-    usdcAddress: "", // TODO: Add USDC mainnet address
-    lzEndpoint: "", // TODO: Add LayerZero V2 mainnet endpoint
-    lzEndpointId: 30111, // Optimism mainnet endpoint ID
-
-    config: {
-      maxPriceAge: 120,
-      maxConfidenceRatio: 300,
-    }
   }
 };
 
@@ -224,7 +110,7 @@ export function getNetworkConfig(networkName: string): NetworkConfig {
  * Helper function to get the base chain configuration for a given network
  */
 export function getBaseChainConfig(isTestnet: boolean): NetworkConfig {
-  return isTestnet ? NETWORKS.baseSepolia : NETWORKS.base;
+  return NETWORKS.baseSepolia; // Base Sepolia is always the base chain
 }
 
 /**
@@ -245,9 +131,7 @@ export function validateNetworkConfig(networkName: string): string[] {
     if (!config.lzEndpoint || config.lzEndpoint === "") {
       errors.push("LayerZero endpoint not configured");
     }
-    if (!config.config?.feeCollector || config.config.feeCollector === "") {
-      errors.push("Fee collector address not configured");
-    }
+    // Fee collector is optional - will default to deployer address if not set
   } else {
     // Satellite chain validation
     if (!config.lzEndpoint || config.lzEndpoint === "") {

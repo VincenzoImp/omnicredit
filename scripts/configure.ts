@@ -244,41 +244,70 @@ async function configureSatelliteChain(
 }
 
 /**
- * Load deployed contracts from Ignition deployment artifacts
+ * Load deployed contracts from saved addresses file
  */
 async function loadDeployedContracts(networkName: string): Promise<DeployedContracts> {
   const contracts: DeployedContracts = {};
+  const fs = await import("fs");
+  const path = await import("path");
 
   try {
-    // Try to load base protocol deployment
-    const baseDeployment = require(`../ignition/deployments/chain-${getNetworkConfig(networkName).chainId}/deployed_addresses.json`);
+    const addressesPath = path.join(process.cwd(), "deployments", `${networkName}-addresses.json`);
+    
+    if (!fs.existsSync(addressesPath)) {
+      console.log("⚠ Deployment addresses file not found:", addressesPath);
+      console.log("  Make sure contracts are deployed first.");
+      console.log("  Run: npx hardhat run scripts/deploy-all.ts --network", networkName);
+      return contracts;
+    }
 
-    if (baseDeployment["BaseProtocol#CreditScore"]) {
-      contracts.creditScore = await ethers.getContractAt("ContinuousCreditScore", baseDeployment["BaseProtocol#CreditScore"]);
-      contracts.priceOracle = await ethers.getContractAt("PriceOracle", baseDeployment["BaseProtocol#PriceOracle"]);
-      contracts.feeBasedLimits = await ethers.getContractAt("FeeBasedLimits", baseDeployment["BaseProtocol#FeeBasedLimits"]);
-      contracts.protocolCore = await ethers.getContractAt("ProtocolCore", baseDeployment["BaseProtocol#ProtocolCore"]);
-      contracts.liquidationManager = await ethers.getContractAt("LiquidationManager", baseDeployment["BaseProtocol#LiquidationManager"]);
-      contracts.crossChainCoordinator = await ethers.getContractAt("CrossChainCoordinator", baseDeployment["BaseProtocol#CrossChainCoordinator"]);
+    const addressesData = JSON.parse(fs.readFileSync(addressesPath, "utf-8"));
 
-      if (baseDeployment["BaseProtocol#LiquidationHook"]) {
-        contracts.liquidationHook = await ethers.getContractAt("LiquidationHook", baseDeployment["BaseProtocol#LiquidationHook"]);
+    // Load BaseProtocol contracts
+    if (addressesData.BaseProtocol) {
+      const addrs = addressesData.BaseProtocol;
+      
+      if (addrs.CreditScore) {
+        contracts.creditScore = await ethers.getContractAt("ContinuousCreditScore", addrs.CreditScore);
+      }
+      if (addrs.PriceOracle) {
+        contracts.priceOracle = await ethers.getContractAt("PriceOracle", addrs.PriceOracle);
+      }
+      if (addrs.FeeBasedLimits) {
+        contracts.feeBasedLimits = await ethers.getContractAt("FeeBasedLimits", addrs.FeeBasedLimits);
+      }
+      if (addrs.ProtocolCore) {
+        contracts.protocolCore = await ethers.getContractAt("ProtocolCore", addrs.ProtocolCore);
+      }
+      if (addrs.LiquidationManager) {
+        contracts.liquidationManager = await ethers.getContractAt("LiquidationManager", addrs.LiquidationManager);
+      }
+      if (addrs.CrossChainCoordinator) {
+        contracts.crossChainCoordinator = await ethers.getContractAt("CrossChainCoordinator", addrs.CrossChainCoordinator);
+      }
+      if (addrs.LiquidationHook) {
+        contracts.liquidationHook = await ethers.getContractAt("LiquidationHook", addrs.LiquidationHook);
       }
     }
 
-    // Try to load cross-chain deployment
-    if (baseDeployment["CrossChain#CollateralVault"]) {
-      contracts.collateralVault = await ethers.getContractAt("CollateralVault", baseDeployment["CrossChain#CollateralVault"]);
+    // Load CrossChain contracts
+    if (addressesData.CrossChain) {
+      const addrs = addressesData.CrossChain;
+      
+      if (addrs.CollateralVault) {
+        contracts.collateralVault = await ethers.getContractAt("CollateralVault", addrs.CollateralVault);
+      }
+      if (addrs.USDCOFTAdapter) {
+        contracts.usdcOFTAdapter = await ethers.getContractAt("USDCOFTAdapter", addrs.USDCOFTAdapter);
+      }
+      if (addrs.USDCOmnitoken) {
+        contracts.usdcOmnitoken = await ethers.getContractAt("USDCOmnitoken", addrs.USDCOmnitoken);
+      }
     }
-    if (baseDeployment["CrossChain#USDCOFTAdapter"]) {
-      contracts.usdcOFTAdapter = await ethers.getContractAt("USDCOFTAdapter", baseDeployment["CrossChain#USDCOFTAdapter"]);
-    }
-    if (baseDeployment["CrossChain#USDCOmnitoken"]) {
-      contracts.usdcOmnitoken = await ethers.getContractAt("USDCOmnitoken", baseDeployment["CrossChain#USDCOmnitoken"]);
-    }
-  } catch (error) {
-    console.log("⚠ Could not load deployment artifacts. Make sure contracts are deployed first.");
-    console.log("  Run: npx hardhat ignition deploy ignition/modules/BaseProtocol.ts --network <network>");
+  } catch (error: any) {
+    console.log("⚠ Could not load deployment addresses:", error.message);
+    console.log("  Make sure contracts are deployed first.");
+    console.log("  Run: npx hardhat run scripts/deploy-all.ts --network", networkName);
   }
 
   return contracts;
@@ -289,8 +318,9 @@ async function loadDeployedContracts(networkName: string): Promise<DeployedContr
  */
 async function main() {
   // Get network from Hardhat
+  const hre = await import("hardhat");
   const network = await ethers.provider.getNetwork();
-  const networkName = (await ethers.provider.getNetwork()).name;
+  const networkName = hre.network.name;
 
   console.log(`\n🔧 Configuring OmniCredit Protocol on ${networkName}`);
   console.log(`   Chain ID: ${network.chainId}`);
