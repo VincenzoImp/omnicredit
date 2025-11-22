@@ -1,0 +1,53 @@
+{
+  "name": "omnicredit",
+  "version": "4.0.0",
+  "description": "Omnichain lending protocol with continuous credit scoring",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "build": "hardhat build",
+    "test": "hardhat test",
+    "test:solidity": "hardhat test solidity",
+    "test:coverage": "hardhat test --coverage",
+    "deploy": "hardhat ignition deploy",
+    "clean": "hardhat clean"
+  },
+  "keywords": [
+    "defi",
+    "lending",
+    "layerzero",
+    "pyth",
+    "uniswap-v4",
+    "omnichain",
+    "credit-scoring"
+  ],
+  "author": "",
+  "license": "MIT",
+  "overrides": {
+    "ethers": "^6.13.4"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.8",
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "@nomicfoundation/hardhat-ignition": "^0.15.15",
+    "@nomicfoundation/hardhat-verify": "^2.0.11",
+    "@typechain/hardhat": "^9.1.0",
+    "chai": "^4.5.0",
+    "ethers": "^6.13.4",
+    "hardhat": "^3.0.15",
+    "typechain": "^8.3.2"
+  },
+  "dependencies": {
+    "@layerzerolabs/lz-definitions": "^2.3.30",
+    "@layerzerolabs/lz-evm-messagelib-v2": "^2.3.37",
+    "@layerzerolabs/lz-evm-oapp-v2": "^2.3.37",
+    "@layerzerolabs/lz-evm-protocol-v2": "^2.3.37",
+    "@openzeppelin/contracts": "^4.9.6",
+    "@openzeppelin/contracts-upgradeable": "^4.9.6",
+    "@pythnetwork/hermes-client": "^1.0.0",
+    "@pythnetwork/pyth-evm-js": "^1.67.0",
+    "@pythnetwork/pyth-sdk-solidity": "^3.1.0",
+    "dotenv": "^16.3.1",
+    "solidity-bytes-utils": "^0.8.4"
+  }
+}
