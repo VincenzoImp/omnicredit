@@ -15,15 +15,26 @@ This document outlines the key tasks required to move the project toward a mainn
 
 ## 2. Development Roadmap
 
-### 🔲 **[Pending]** Task 2: Develop Robust Deployment & Configuration Scripts
+### ✅ **[Completed]** Task 1: Protocol Test Suite Hardening and Expansion
+*   **Objective:** To achieve 100% test coverage for all smart contracts, ensuring the integrity and reliability of the protocol after audit remediations.
+*   **Key Sub-Tasks:**
+    *   [x] Write comprehensive unit tests for all new features and bug fixes introduced during remediation.
+    *   [x] Expand integration tests to cover cross-chain interactions and complex liquidation scenarios.
+    *   [x] Implement fuzz testing for critical contract functions to discover edge cases and vulnerabilities.
+    *   [x] Integrate invariant testing for core protocol properties to ensure long-term system integrity.
+
+### ✅ **[Completed]** Task 2: Develop Robust Deployment & Configuration Scripts
 *   **Objective:** To create a reliable, repeatable, and secure process for deploying and configuring the entire protocol stack on any target network.
 *   **Key Sub-Tasks:**
-    *   [ ] Write Hardhat Ignition modules or deployment scripts for all contracts.
-    *   [ ] Script the post-deployment configuration steps, including:
+    *   [x] Write Hardhat Ignition modules or deployment scripts for all contracts.
+    *   [x] Script the post-deployment configuration steps, including:
         *   Authorizing contracts (e.g., `ProtocolCore` in `CrossChainCoordinator`).
         *   Setting oracle addresses and Pyth price feed IDs.
         *   Setting the Uniswap v4 pool key in `LiquidationManager`.
         *   Configuring LayerZero V2 endpoint addresses and peer settings.
+    *   [x] Create deployment verification script to validate configurations.
+    *   [x] Build cross-chain setup utilities for vault authorization and trusted remotes.
+    *   [x] Document deployment process with comprehensive guide.
 
 ---
 
