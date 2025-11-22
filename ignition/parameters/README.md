@@ -47,7 +47,17 @@ npx hardhat ignition deploy ignition/modules/CrossChain.ts \
 - **usdcAddress**: USDC token address on Base Sepolia
 - **lzEndpoint**: LayerZero V2 endpoint address on Base Sepolia
 - **lzDelegate**: Your deployer address (used as LayerZero delegate)
-- **poolManager**: Uniswap V4 PoolManager address (set to zero if not available)
+- **poolManager**: Uniswap V4 PoolManager address
+  - **For Testnets (Base Sepolia)**: Deploy your own using:
+    ```bash
+    forge script lib/v4-periphery/script/01_PoolManager.s.sol:DeployPoolManager \
+      --rpc-url $BASE_SEPOLIA_RPC_URL \
+      --broadcast \
+      --private-key $PRIVATE_KEY
+    ```
+    Then copy the deployed address to this parameter.
+  - **For Mainnet**: Use the official Uniswap V4 PoolManager address (check Uniswap V4 documentation)
+  - **Note**: PoolManager is typically deployed ONCE per chain and shared by all protocols
 - **feeCollector**: Address that will receive protocol fees (typically your deployer address)
 
 ### CrossChain Parameters
@@ -55,6 +65,50 @@ npx hardhat ignition deploy ignition/modules/CrossChain.ts \
 - **chainType**: Type of chain - "ethereum", "satellite", or "non-usdc"
 - **lzEndpoint**: LayerZero V2 endpoint address
 - **lzDelegate**: Your deployer address (used as LayerZero delegate)
-- **coordinatorEid**: LayerZero endpoint ID of the Base chain coordinator (40245 for Base Sepolia)
-- **usdcAddress**: USDC token address (required for "ethereum" chain type)
+- **coordinatorEid**: Base chain endpoint ID (required for satellite chains)
+- **usdcAddress**: USDC token address (required for Ethereum chain type)
 
+## PoolManager Deployment
+
+### Why Deploy Your Own?
+
+- **Testnets**: Uniswap V4 may not have official deployments on all testnets
+- **Development**: You need full control over the PoolManager instance
+- **Custom Configuration**: You want to set your own protocol fee owner
+
+### How to Deploy PoolManager
+
+1. **Using Foundry** (Recommended):
+   ```bash
+   forge script lib/v4-periphery/script/01_PoolManager.s.sol:DeployPoolManager \
+     --rpc-url $BASE_SEPOLIA_RPC_URL \
+     --broadcast \
+     --private-key $PRIVATE_KEY
+   ```
+
+2. **Update Parameters**:
+   - Copy the deployed PoolManager address from the output
+   - Update `ignition/parameters/baseSepolia.json`:
+     ```json
+     {
+       "BaseProtocol": {
+         "poolManager": "0x<your-deployed-poolmanager-address>",
+         ...
+       }
+     }
+     ```
+
+3. **Deploy Base Protocol**:
+   ```bash
+   npx hardhat ignition deploy ignition/modules/BaseProtocol.ts \
+     --network baseSepolia \
+     --parameters ignition/parameters/baseSepolia.json \
+     --reset
+   ```
+
+### Using Official Uniswap V4 PoolManager
+
+When Uniswap V4 is officially deployed on mainnet, you can use their PoolManager address:
+- Check Uniswap V4 documentation for official addresses
+- Update the `poolManager` parameter with the official address
+- No need to deploy your own

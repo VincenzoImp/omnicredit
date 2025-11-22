@@ -1,12 +1,13 @@
 import dotenv from 'dotenv';
 import hardhatIgnition from '@nomicfoundation/hardhat-ignition';
 import hardhatVerify from '@nomicfoundation/hardhat-verify';
+import hardhatEthers from '@nomicfoundation/hardhat-ethers';
 
 dotenv.config();
 
 /** @type {import('hardhat/types').HardhatUserConfig} */
 const config = {
-  plugins: [hardhatIgnition, hardhatVerify],
+  plugins: [hardhatIgnition, hardhatVerify, hardhatEthers],
   solidity: {
     version: "0.8.28",
     settings: {
@@ -45,6 +46,10 @@ const config = {
     cache: "./cache",
     artifacts: "./artifacts",
   },
+
+  // Exclude LiquidationHook from compilation if it causes issues
+  // It can be compiled separately with Foundry which handles @uniswap imports better
+  // To compile it: forge build --contracts contracts/hooks/LiquidationHook.sol
 };
 
 export default config;

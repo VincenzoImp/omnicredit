@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
-import {Hooks} from "v4-periphery/lib/v4-core/src/libraries/Hooks.sol";
-import {IPoolManager} from "v4-periphery/lib/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "v4-periphery/lib/v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary} from "v4-periphery/lib/v4-core/src/types/PoolId.sol";
-import {BalanceDelta} from "v4-periphery/lib/v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-periphery/lib/v4-core/src/types/BeforeSwapDelta.sol";
-import {SwapParams} from "v4-periphery/lib/v4-core/src/types/PoolOperation.sol";
-import {StateLibrary} from "v4-periphery/lib/v4-core/src/libraries/StateLibrary.sol";
+// Using @uniswap imports for clarity and consistency
+// Foundry resolves these via remappings.txt
+// Hardhat resolves these via symlinks in node_modules/@uniswap
+import {BaseHook} from "@uniswap/v4-periphery/src/utils/BaseHook.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
@@ -28,7 +32,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract LiquidationHook is BaseHook, Ownable {
     using BeforeSwapDeltaLibrary for BeforeSwapDelta;
     using PoolIdLibrary for PoolKey;
-    using StateLibrary for IPoolManager; // Added this line
+    using StateLibrary for IPoolManager;
 
     // ============ CONSTANTS ============
 
@@ -128,11 +132,11 @@ contract LiquidationHook is BaseHook, Ownable {
             emit VolatilityFeeApplied(poolId, volatilityFee, priceChangeBPS);
 
             // Return selector + no delta + dynamic fee
-            return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, volatilityFee);
+            return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, volatilityFee);
         }
 
         // Not a liquidation - use default behavior
-        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
     /**
@@ -161,7 +165,7 @@ contract LiquidationHook is BaseHook, Ownable {
             poolStates[poolId].totalLiquidations++;
         }
 
-        return (BaseHook.afterSwap.selector, 0);
+        return (IHooks.afterSwap.selector, 0);
     }
 
     // ============ INTERNAL FUNCTIONS ============
@@ -221,6 +225,7 @@ contract LiquidationHook is BaseHook, Ownable {
         returns (uint256 price)
     {
         // Get the pool's current state from the manager
+        // poolManager is from BaseHook (ImmutableState) and is IPoolManager
         (uint160 sqrtPriceX96, , , ) = StateLibrary.getSlot0(poolManager, key.toId());
 
         // price = (sqrtPriceX96 / 2^96)^2

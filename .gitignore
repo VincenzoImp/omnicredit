@@ -23,3 +23,7 @@ pnpm-error.log
 # Editor and OS files
 .DS_Store
 .idea
+node_modules/@uniswap
+node_modules/@uniswap
+lib/v4-periphery/node_modules
+lib/v4-periphery/lib/v4-core.backup
