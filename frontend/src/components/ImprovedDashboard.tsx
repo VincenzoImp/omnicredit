@@ -31,18 +31,6 @@ export default function ImprovedDashboard() {
 
   return (
     <div className="min-h-screen p-8">
-      {/* Debug div */}
-      <div style={{ 
-        position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        background: 'red', 
-        color: 'white', 
-        padding: '10px',
-        zIndex: 9999 
-      }}>
-        Dashboard Loaded! Connected: {isConnected ? 'Yes' : 'No'}
-      </div>
       
       <div className="max-w-7xl mx-auto">
         {/* Header */}
