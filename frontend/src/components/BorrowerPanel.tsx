@@ -5,7 +5,8 @@ import {
   useWaitForTransactionReceipt, 
   useChainId, 
   useBalance,
-  useSwitchChain 
+  useSwitchChain,
+  useReadContract
 } from 'wagmi';
 import { parseEther, parseUnits, formatEther } from 'viem';
 import { getAddress } from '../deployments';
@@ -125,7 +126,8 @@ export default function BorrowerPanel() {
   useEffect(() => {
     if (writeError) {
       console.error('Write error:', writeError);
-      toast.error(`Transaction failed: ${writeError.shortMessage || writeError.message}`);
+      const errorMessage = (writeError as any).shortMessage || writeError.message;
+      toast.error(`Transaction failed: ${errorMessage}`);
     }
     if (txError) {
       console.error('TX error:', txError);
@@ -246,7 +248,7 @@ export default function BorrowerPanel() {
         toast.loading('Approving USDC... (1/2)', { id: toastId });
         
         try {
-          const approveHash = await writeContractAsync({
+          await writeContractAsync({
             address: getAddress('arbitrumSepolia', 'mockUSDC'),
             abi: MOCKUSDC_ABI,
             functionName: 'approve',
@@ -264,7 +266,7 @@ export default function BorrowerPanel() {
         } catch (approveError: any) {
           // Try with manual gas
           console.warn('Approval gas estimation failed, using manual limit');
-          const approveHash = await writeContractAsync({
+          await writeContractAsync({
             address: getAddress('arbitrumSepolia', 'mockUSDC'),
             abi: MOCKUSDC_ABI,
             functionName: 'approve',
