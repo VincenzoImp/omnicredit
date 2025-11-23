@@ -116,6 +116,11 @@ export default function ImprovedBorrowerPanel({
   const chainKey = selectedChainName.toLowerCase().replace(' ', '') as 'arbitrumsepolia' | 'basesepolia' | 'optimismsepolia';
   const isArbitrum = chainKey === 'arbitrumsepolia';
 
+  // Get addresses
+  const collateralVaultAddress = getAddress(chainKey, 'collateralVault');
+  const mockUSDCAddress = isArbitrum ? getAddress('arbitrumSepolia', 'mockUSDC') : undefined;
+  const protocolCoreAddress = isArbitrum ? getAddress('arbitrumSepolia', 'protocolCore') : undefined;
+
   // Get ETH balance on selected chain
   const { data: ethBalance, refetch: refetchBalance } = useBalance({
     address,
@@ -124,22 +129,22 @@ export default function ImprovedBorrowerPanel({
 
   // Get USDC allowance for repay
   const { data: currentAllowance, refetch: refetchAllowance } = useReadContract({
-    address: isArbitrum ? getAddress('arbitrumSepolia', 'mockUSDC') : undefined,
+    address: mockUSDCAddress,
     abi: MOCKUSDC_ABI,
     functionName: 'allowance',
-    args: address ? [address, getAddress('arbitrumSepolia', 'protocolCore')] : undefined,
+    args: address && protocolCoreAddress ? [address, protocolCoreAddress] : undefined,
     chainId: 421614,
-    query: { enabled: !!address && isArbitrum },
+    query: { enabled: !!address && isArbitrum && !!mockUSDCAddress && !!protocolCoreAddress },
   });
 
   // Get loan details
   const { data: loanData, refetch: refetchLoan } = useReadContract({
-    address: isArbitrum ? getAddress('arbitrumSepolia', 'protocolCore') : undefined,
+    address: protocolCoreAddress,
     abi: PROTOCOL_CORE_ABI,
     functionName: 'loans',
     args: address ? [address] : undefined,
     chainId: 421614,
-    query: { enabled: !!address && isArbitrum },
+    query: { enabled: !!address && isArbitrum && !!protocolCoreAddress },
   });
 
   useEffect(() => {
@@ -155,7 +160,7 @@ export default function ImprovedBorrowerPanel({
   }, [isTxSuccess, refetchBalance, refetchAllowance, refetchLoan]);
 
   const handleDepositCollateral = async () => {
-    if (!collateralAmount || !address) return;
+    if (!collateralAmount || !address || !collateralVaultAddress) return;
     
     const toastId = toast.loading('Depositing collateral...');
     
@@ -172,7 +177,7 @@ export default function ImprovedBorrowerPanel({
       
       try {
         await writeContractAsync({
-          address: getAddress(chainKey, 'collateralVault'),
+          address: collateralVaultAddress,
           abi: COLLATERAL_VAULT_ABI,
           functionName: 'depositNative',
           value: totalValue,
@@ -181,7 +186,7 @@ export default function ImprovedBorrowerPanel({
         toast.dismiss(toastId);
       } catch {
         await writeContractAsync({
-          address: getAddress(chainKey, 'collateralVault'),
+          address: collateralVaultAddress,
           abi: COLLATERAL_VAULT_ABI,
           functionName: 'depositNative',
           value: totalValue,
@@ -197,7 +202,7 @@ export default function ImprovedBorrowerPanel({
   };
 
   const handleBorrow = async () => {
-    if (!borrowAmount || !address || !isArbitrum) return;
+    if (!borrowAmount || !address || !isArbitrum || !protocolCoreAddress) return;
     
     const toastId = toast.loading('Initiating cross-chain borrow...');
     
@@ -207,7 +212,7 @@ export default function ImprovedBorrowerPanel({
       
       try {
         await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'borrowCrossChain',
           args: [amountBN, dstEid, amountBN],
@@ -218,7 +223,7 @@ export default function ImprovedBorrowerPanel({
         toast.success(`USDC will arrive on ${destinationChain.replace('Sepolia', ' Sepolia')} in 1-2 minutes`);
       } catch {
         await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'borrowCrossChain',
           args: [amountBN, dstEid, amountBN],
@@ -236,13 +241,12 @@ export default function ImprovedBorrowerPanel({
   };
 
   const handleRepay = async () => {
-    if (!repayAmount || !address || !isArbitrum) return;
+    if (!repayAmount || !address || !isArbitrum || !protocolCoreAddress || !mockUSDCAddress) return;
     
     const toastId = toast.loading('Checking approval...');
     
     try {
       const amountBN = parseUnits(repayAmount, 6);
-      const protocolCoreAddress = getAddress('arbitrumSepolia', 'protocolCore');
       
       const allowance = currentAllowance || 0n;
       
@@ -251,7 +255,7 @@ export default function ImprovedBorrowerPanel({
         
         try {
           await writeContractAsync({
-            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            address: mockUSDCAddress,
             abi: MOCKUSDC_ABI,
             functionName: 'approve',
             args: [protocolCoreAddress, amountBN],
@@ -264,7 +268,7 @@ export default function ImprovedBorrowerPanel({
           toast.loading('Repaying... (2/2)', { id: toastId });
         } catch {
           await writeContractAsync({
-            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            address: mockUSDCAddress,
             abi: MOCKUSDC_ABI,
             functionName: 'approve',
             args: [protocolCoreAddress, amountBN],

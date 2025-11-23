@@ -41,9 +41,10 @@ export async function loadDeployments(): Promise<void> {
   }
 }
 
-export function getAddress(chain: keyof DeploymentAddresses, contract: string): `0x${string}` {
+export function getAddress(chain: keyof DeploymentAddresses, contract: string): `0x${string}` | undefined {
   if (!deployments) {
-    throw new Error('Deployments not loaded yet. Call loadDeployments() first.');
+    console.warn('Deployments not loaded yet');
+    return undefined;
   }
   
   const chainDeployments = deployments[chain] as Record<string, string>;
@@ -51,7 +52,7 @@ export function getAddress(chain: keyof DeploymentAddresses, contract: string): 
   
   if (!address) {
     console.error(`Available contracts on ${chain}:`, Object.keys(chainDeployments));
-    throw new Error(`Missing address for ${contract} on ${chain}`);
+    return undefined;
   }
   
   return address as `0x${string}`;

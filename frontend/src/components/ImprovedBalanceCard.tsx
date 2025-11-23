@@ -54,6 +54,10 @@ export default function ImprovedBalanceCard({
   
   const chainKey = chainName.toLowerCase().replace(' ', '') as 'arbitrumsepolia' | 'basesepolia' | 'optimismsepolia';
 
+  // Get addresses
+  const mockUSDCAddress = getAddress(chainKey, 'mockUSDC');
+  const protocolCoreAddress = chainKey === 'arbitrumsepolia' ? getAddress('arbitrumSepolia', 'protocolCore') : undefined;
+
   // Get native ETH balance
   const { data: ethBalance } = useBalance({
     address,
@@ -62,32 +66,32 @@ export default function ImprovedBalanceCard({
 
   // Get MockUSDC balance
   const { data: usdcBalance } = useReadContract({
-    address: getAddress(chainKey, 'mockUSDC'),
+    address: mockUSDCAddress,
     abi: MOCKUSDC_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
     chainId,
-    query: { enabled: !!address },
+    query: { enabled: !!address && !!mockUSDCAddress },
   });
 
   // Get lending shares (only on Arbitrum)
   const { data: lendingShares } = useReadContract({
-    address: chainKey === 'arbitrumsepolia' ? getAddress('arbitrumSepolia', 'protocolCore') : undefined,
+    address: protocolCoreAddress,
     abi: PROTOCOL_CORE_ABI,
     functionName: 'shares',
     args: address ? [address] : undefined,
     chainId: 421614, // Arbitrum Sepolia
-    query: { enabled: !!address && chainKey === 'arbitrumsepolia' },
+    query: { enabled: !!address && !!protocolCoreAddress },
   });
 
   // Get loan details (only on Arbitrum)
   const { data: loanData } = useReadContract({
-    address: chainKey === 'arbitrumsepolia' ? getAddress('arbitrumSepolia', 'protocolCore') : undefined,
+    address: protocolCoreAddress,
     abi: PROTOCOL_CORE_ABI,
     functionName: 'loans',
     args: address ? [address] : undefined,
     chainId: 421614, // Arbitrum Sepolia
-    query: { enabled: !!address && chainKey === 'arbitrumsepolia' },
+    query: { enabled: !!address && !!protocolCoreAddress },
   });
 
   const formattedEth = ethBalance ? formatEther(ethBalance.value) : '0';

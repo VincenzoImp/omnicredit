@@ -93,24 +93,28 @@ export default function ImprovedLenderPanel({
   const chainKey = selectedChainName.toLowerCase().replace(' ', '') as 'arbitrumsepolia' | 'basesepolia' | 'optimismsepolia';
   const isArbitrum = chainKey === 'arbitrumsepolia';
 
+  // Get addresses
+  const mockUSDCAddress = getAddress(chainKey, 'mockUSDC');
+  const protocolCoreAddress = isArbitrum ? getAddress('arbitrumSepolia', 'protocolCore') : undefined;
+
   // Get current allowance
   const { data: currentAllowance, refetch: refetchAllowance } = useReadContract({
-    address: getAddress(chainKey, 'mockUSDC'),
+    address: mockUSDCAddress,
     abi: MOCKUSDC_ABI,
     functionName: 'allowance',
-    args: address && isArbitrum ? [address, getAddress('arbitrumSepolia', 'protocolCore')] : undefined,
+    args: address && protocolCoreAddress ? [address, protocolCoreAddress] : undefined,
     chainId: selectedChainId,
-    query: { enabled: !!address && isArbitrum },
+    query: { enabled: !!address && isArbitrum && !!mockUSDCAddress && !!protocolCoreAddress },
   });
 
   // Get user shares
   const { data: userShares, refetch: refetchShares } = useReadContract({
-    address: isArbitrum ? getAddress('arbitrumSepolia', 'protocolCore') : undefined,
+    address: protocolCoreAddress,
     abi: PROTOCOL_CORE_ABI,
     functionName: 'shares',
     args: address ? [address] : undefined,
     chainId: 421614,
-    query: { enabled: !!address && isArbitrum },
+    query: { enabled: !!address && isArbitrum && !!protocolCoreAddress },
   });
 
   useEffect(() => {
@@ -123,7 +127,7 @@ export default function ImprovedLenderPanel({
   }, [isTxSuccess, refetchAllowance, refetchShares]);
 
   const handleMint = async () => {
-    if (!amount || !address) return;
+    if (!amount || !address || !mockUSDCAddress) return;
     
     const toastId = toast.loading('Minting MockUSDC...');
     
@@ -132,7 +136,7 @@ export default function ImprovedLenderPanel({
       
       try {
         await writeContractAsync({
-          address: getAddress(chainKey, 'mockUSDC'),
+          address: mockUSDCAddress,
           abi: MOCKUSDC_ABI,
           functionName: 'mint',
           args: [address, amountBN],
@@ -141,7 +145,7 @@ export default function ImprovedLenderPanel({
         toast.dismiss(toastId);
       } catch (estimationError: any) {
         await writeContractAsync({
-          address: getAddress(chainKey, 'mockUSDC'),
+          address: mockUSDCAddress,
           abi: MOCKUSDC_ABI,
           functionName: 'mint',
           args: [address, amountBN],
@@ -157,13 +161,12 @@ export default function ImprovedLenderPanel({
   };
 
   const handleDeposit = async () => {
-    if (!amount || !address || !isArbitrum) return;
+    if (!amount || !address || !isArbitrum || !protocolCoreAddress || !mockUSDCAddress) return;
     
     const toastId = toast.loading('Checking approval...');
     
     try {
       const amountBN = parseUnits(amount, 6);
-      const protocolCoreAddress = getAddress('arbitrumSepolia', 'protocolCore');
       
       // Check if approval is needed
       const allowance = currentAllowance || 0n;
@@ -173,7 +176,7 @@ export default function ImprovedLenderPanel({
         
         try {
           await writeContractAsync({
-            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            address: mockUSDCAddress,
             abi: MOCKUSDC_ABI,
             functionName: 'approve',
             args: [protocolCoreAddress, amountBN],
@@ -186,7 +189,7 @@ export default function ImprovedLenderPanel({
           toast.loading('Depositing... (2/2)', { id: toastId });
         } catch {
           await writeContractAsync({
-            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            address: mockUSDCAddress,
             abi: MOCKUSDC_ABI,
             functionName: 'approve',
             args: [protocolCoreAddress, amountBN],
@@ -231,7 +234,7 @@ export default function ImprovedLenderPanel({
   };
 
   const handleWithdraw = async () => {
-    if (!amount || !address || !isArbitrum) return;
+    if (!amount || !address || !isArbitrum || !protocolCoreAddress) return;
     
     const toastId = toast.loading('Withdrawing...');
     
@@ -240,7 +243,7 @@ export default function ImprovedLenderPanel({
       
       try {
         await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'withdraw',
           args: [shareAmount],
@@ -249,7 +252,7 @@ export default function ImprovedLenderPanel({
         toast.dismiss(toastId);
       } catch {
         await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'withdraw',
           args: [shareAmount],
