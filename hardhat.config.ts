@@ -1,13 +1,14 @@
-import dotenv from 'dotenv';
-import hardhatIgnition from '@nomicfoundation/hardhat-ignition';
-import hardhatVerify from '@nomicfoundation/hardhat-verify';
-import hardhatEthers from '@nomicfoundation/hardhat-ethers';
+import dotenv from "dotenv";
+import { defineConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-ignition";
+import "@nomicfoundation/hardhat-verify";
+import "@nomicfoundation/hardhat-ethers";
+
+console.log("Hardhat config loading...");
 
 dotenv.config();
 
-/** @type {import('hardhat/types').HardhatUserConfig} */
-const config = {
-  plugins: [hardhatIgnition, hardhatVerify, hardhatEthers],
+export default defineConfig({
   solidity: {
     version: "0.8.28",
     settings: {
@@ -50,6 +51,4 @@ const config = {
     cache: "./cache",
     artifacts: "./artifacts",
   },
-};
-
-export default config;
+});
