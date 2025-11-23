@@ -140,12 +140,12 @@ export default function BorrowerPanel({
     
     try {
       const collateralValue = parseEther(collateralAmount);
-      const lzFee = parseEther('0.02'); // Increased from 0.01 to 0.02
+      const lzFee = parseEther('0.002'); // Reduced estimation for LayerZero fees
       const totalValue = collateralValue + lzFee;
       
       if (ethBalance && ethBalance.value < totalValue) {
         toast.dismiss(toastId);
-        toast.error('Insufficient balance. Need ~0.02 ETH extra for LayerZero fees');
+        toast.error('Insufficient balance. Need ~0.002 ETH extra for LayerZero fees');
         return;
       }
       
@@ -200,7 +200,7 @@ export default function BorrowerPanel({
           abi: PROTOCOL_CORE_ABI,
           functionName: 'borrowCrossChain',
           args: [amountBN, dstEid, amountBN],
-          value: parseEther('0.02'),
+          value: parseEther('0.002'),
           chainId: 421614,
         });
         toast.dismiss(toastId);
@@ -211,7 +211,7 @@ export default function BorrowerPanel({
           abi: PROTOCOL_CORE_ABI,
           functionName: 'borrowCrossChain',
           args: [amountBN, dstEid, amountBN],
-          value: parseEther('0.02'),
+          value: parseEther('0.002'),
           chainId: 421614,
           gas: 1000000n,
         });
@@ -341,13 +341,13 @@ export default function BorrowerPanel({
       const collateralValue = parseEther(collateralAmount);
       const borrowAmountBN = parseUnits(borrowAmount, 6);
       // Fee is higher because it sends 2 messages (Deposit + Borrow) + OFT bridging
-      const lzFee = parseEther('0.03'); 
+      const lzFee = parseEther('0.005'); 
       const totalValue = collateralValue + lzFee;
       const dstEid = CHAIN_EIDS[destinationChain]; // Where to receive funds
 
       if (ethBalance && ethBalance.value < totalValue) {
         toast.dismiss(toastId);
-        toast.error('Insufficient balance. Need ~0.03 ETH extra for LayerZero fees');
+        toast.error('Insufficient balance. Need ~0.005 ETH extra for LayerZero fees');
         return;
       }
 
@@ -436,7 +436,7 @@ export default function BorrowerPanel({
                 >
                     {isProcessing ? '⏳ Processing...' : '🚀 Deposit & Borrow'}
                 </button>
-                <p className="text-center text-white/40 text-xs">Includes ~0.03 ETH LayerZero Fee</p>
+                <p className="text-center text-white/40 text-xs">Includes ~0.005 ETH LayerZero Fee</p>
             </div>
 
             <div className="mt-8 pt-6 border-t border-white/20">
@@ -547,7 +547,7 @@ export default function BorrowerPanel({
               {isProcessing ? '⏳' : 'Borrow'}
             </button>
           </div>
-          <p className="text-white/50 text-xs mt-1">Requires 0.02 ETH for LayerZero + OFT fees</p>
+          <p className="text-white/50 text-xs mt-1">Requires 0.002 ETH for LayerZero + OFT fees</p>
         </div>
 
         {/* Repay */}
