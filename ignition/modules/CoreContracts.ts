@@ -21,8 +21,8 @@ export default buildModule("CoreContracts", (m) => {
     // Deploy ContinuousCreditScore
     const creditScore = m.contract("ContinuousCreditScore");
 
-    // Deploy FeeBasedLimits
-    const feeBasedLimits = m.contract("FeeBasedLimits");
+    // Deploy FeeBasedLimits (requires creditScore in constructor)
+    const feeBasedLimits = m.contract("FeeBasedLimits", [creditScore]);
 
     // Deploy PriceOracle
     const priceOracle = m.contract("PriceOracle", [pythAddress]);
@@ -56,7 +56,8 @@ export default buildModule("CoreContracts", (m) => {
     const ethPriceFeedId = m.getParameter("ethPriceFeedId");
     if (ethPriceFeedId) {
         m.call(priceOracle, "addPriceFeed", [
-            "0x0000000000000000000000000000000000000000", // address(0) for ETH
+            // Use the same pseudo-address for native ETH used by CollateralVault.NATIVE_TOKEN
+            "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
             ethPriceFeedId,
         ]);
     }

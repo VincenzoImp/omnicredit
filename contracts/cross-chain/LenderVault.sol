@@ -187,7 +187,7 @@ contract LenderVault is OApp, ReentrancyGuard {
      */
     function _lzReceive(
         Origin calldata _origin,
-        bytes32 _guid,
+        bytes32 /* _guid */,
         bytes calldata _message,
         address /* _executor */,
         bytes calldata /* _extraData */
@@ -197,21 +197,24 @@ contract LenderVault is OApp, ReentrancyGuard {
             return; // Ignore unauthorized messages
         }
 
-        (uint8 messageType, bytes32 guid, bool success) = abi.decode(_message, (uint8, bytes32, bool));
+        (uint8 messageType, bytes32 guid, bool success) = abi.decode(
+            _message,
+            (uint8, bytes32, bool)
+        );
         
         if (messageType != 2) return; // Type 2 = DEPOSIT_CONFIRMATION
 
-        PendingDeposit storage deposit = pendingDeposits[guid];
-        if (deposit.lender == address(0)) return; // Deposit not found
+        PendingDeposit storage pending = pendingDeposits[guid];
+        if (pending.lender == address(0)) return; // Deposit not found
 
         if (success) {
-            deposit.processed = true;
+            pending.processed = true;
             emit DepositConfirmed(guid, true);
         } else {
             // Refund on failure
-            deposit.processed = true;
-            localUSDC.safeTransfer(deposit.lender, deposit.amount);
-            emit DepositRefunded(guid, deposit.lender, deposit.amount);
+            pending.processed = true;
+            localUSDC.safeTransfer(pending.lender, pending.amount);
+            emit DepositRefunded(guid, pending.lender, pending.amount);
         }
     }
 
@@ -219,14 +222,14 @@ contract LenderVault is OApp, ReentrancyGuard {
      * @notice Manual refund after timeout
      */
     function checkAndRefund(bytes32 guid) external {
-        PendingDeposit storage deposit = pendingDeposits[guid];
-        if (deposit.lender == address(0)) revert DepositNotFound();
-        if (deposit.processed) revert DepositAlreadyProcessed();
-        if (block.timestamp <= deposit.timestamp + DEPOSIT_TIMEOUT) revert DepositNotTimedOut();
+        PendingDeposit storage pending = pendingDeposits[guid];
+        if (pending.lender == address(0)) revert DepositNotFound();
+        if (pending.processed) revert DepositAlreadyProcessed();
+        if (block.timestamp <= pending.timestamp + DEPOSIT_TIMEOUT) revert DepositNotTimedOut();
 
-        deposit.processed = true;
-        localUSDC.safeTransfer(deposit.lender, deposit.amount);
-        emit DepositRefunded(guid, deposit.lender, deposit.amount);
+        pending.processed = true;
+        localUSDC.safeTransfer(pending.lender, pending.amount);
+        emit DepositRefunded(guid, pending.lender, pending.amount);
     }
 
     /**

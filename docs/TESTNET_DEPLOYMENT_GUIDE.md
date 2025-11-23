@@ -17,7 +17,6 @@ PRIVATE_KEY=your_private_key_here
 # RPC URLs
 BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
-SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 
 # LayerZero V2 Endpoints (Base Sepolia)
 LZ_ENDPOINT=0x6EDCE65403992e310A62460808c4b910D972f10f

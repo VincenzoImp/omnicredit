@@ -13,12 +13,12 @@ ignition/
 │   ├── MockOFT.ts            # MockOFT (riutilizzabile)
 │   ├── ArbitrumSepolia.ts    # Deployment completo Arbitrum Sepolia
 │   ├── SatelliteChain.ts     # Modulo riutilizzabile per chain satellite
-│   ├── Sepolia.ts            # Deployment Sepolia
+│   ├── BaseSepolia.ts        # Deployment Base Sepolia
 │   ├── OptimismSepolia.ts    # Deployment Optimism Sepolia
 │   └── ConfigurePeers.ts    # Configurazione peers LayerZero
 └── parameters/        # Parametri per ogni chain
     ├── arbitrumSepolia.json
-    ├── sepolia.json
+    ├── baseSepolia.json
     └── optimismSepolia.json
 ```
 
@@ -42,7 +42,7 @@ Modulo riutilizzabile per deployare MockOFT su qualsiasi chain.
 Deployment completo per Arbitrum Sepolia (chain principale).
 
 ### SatelliteChain
-Modulo riutilizzabile per chain satellite (Sepolia, Optimism Sepolia):
+Modulo riutilizzabile per chain satellite (Base Sepolia, Optimism Sepolia):
 - MockUSDC locale
 - MockOFT
 - LenderVault
@@ -61,7 +61,7 @@ Crea file `.env` con:
 ```bash
 PRIVATE_KEY=your_private_key
 ARBITRUM_SEPOLIA_RPC_URL=https://sepolia-rollup.arbitrum.io/rpc
-SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 OPTIMISM_SEPOLIA_RPC_URL=https://sepolia.optimism.io
 ```
 
@@ -86,42 +86,20 @@ Questo deploya:
 
 **Salva gli indirizzi deployati!**
 
-### 3. Deploy Sepolia
+### 3. Deploy Base Sepolia
 
-Prima di deployare, aggiorna `ignition/parameters/sepolia.json`:
-```json
-{
-  "protocolCoreAddress": "0x000000000000000000000000...", // Address di ProtocolCore su Arbitrum come bytes32 (64 caratteri hex)
-  ...
-}
-```
-
-**Nota**: `protocolCoreAddress` deve essere l'indirizzo di ProtocolCore convertito in bytes32.
-Usa questo helper per convertire: `"0x" + address.slice(2).padStart(64, "0")`
+Usa lo script modulare che aggiorna automaticamente il parametro `protocolCoreAddress` prima di lanciare Ignition:
 
 ```bash
-npx hardhat ignition deploy ignition/modules/Sepolia.ts \
-  --network sepolia \
-  --parameters ignition/parameters/sepolia.json
+npm run deploy:baseSepolia
 ```
 
 ### 4. Deploy Optimism Sepolia
 
-Prima di deployare, aggiorna `ignition/parameters/optimismSepolia.json`:
-```json
-{
-  "protocolCoreAddress": "0x000000000000000000000000...", // Address di ProtocolCore su Arbitrum come bytes32 (64 caratteri hex)
-  ...
-}
-```
-
-**Nota**: `protocolCoreAddress` deve essere l'indirizzo di ProtocolCore convertito in bytes32.
-Usa questo helper per convertire: `"0x" + address.slice(2).padStart(64, "0")`
+Stesso flusso automatico per Optimism:
 
 ```bash
-npx hardhat ignition deploy ignition/modules/OptimismSepolia.ts \
-  --network optimismSepolia \
-  --parameters ignition/parameters/optimismSepolia.json
+npm run deploy:optimism
 ```
 
 ### 5. Configurare Peers LayerZero
@@ -132,8 +110,8 @@ Dopo aver deployato su tutte le chain, configura i peers usando lo script dedica
 # Su Arbitrum Sepolia
 npx hardhat run scripts/configure-peers.ts --network arbitrumSepolia
 
-# Su Sepolia
-npx hardhat run scripts/configure-peers.ts --network sepolia
+# Su Base Sepolia
+npx hardhat run scripts/configure-peers.ts --network baseSepolia
 
 # Su Optimism Sepolia
 npx hardhat run scripts/configure-peers.ts --network optimismSepolia
@@ -178,7 +156,7 @@ npx hardhat ignition deploy ignition/modules/ArbitrumSepolia.ts \
 - `ethPriceFeedId`: Pyth ETH/USD price feed ID
 - `delegate`: Address delegate per LayerZero
 
-### Sepolia / Optimism Sepolia
+### Base Sepolia / Optimism Sepolia
 - `lzEndpoint`: LayerZero V2 endpoint
 - `protocolCoreEid`: Endpoint ID di Arbitrum Sepolia (40231)
 - `protocolCoreAddress`: Indirizzo ProtocolCore su Arbitrum (bytes32)
@@ -213,7 +191,7 @@ Assicurati di avere ETH sufficiente sulla chain di destinazione.
 - [ ] Deploy Arbitrum Sepolia
 - [ ] Salvare indirizzi deployati
 - [ ] Aggiornare `protocolCoreAddress` in parametri satellite
-- [ ] Deploy Sepolia
+- [ ] Deploy Base Sepolia
 - [ ] Deploy Optimism Sepolia
 - [ ] Configurare peers LayerZero
 - [ ] Verificare contratti su explorer

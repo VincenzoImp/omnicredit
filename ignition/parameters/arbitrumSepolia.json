@@ -1,6 +1,12 @@
 {
-    "pythAddress": "0x...",
-    "lzEndpoint": "0x6EDCE65403992e310A62460808c4b910D972f10f",
-    "ethPriceFeedId": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-    "delegate": "0x..."
+    "CoreContracts": {
+        "pythAddress": "0x549Ebba8036Ab746611B4fFA1423eb0A4Df61440",
+        "lzEndpoint": "0x6EDCE65403992e310A62460808c4b910D972f10f",
+        "ethPriceFeedId": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+        "delegate": "0xa05d4Ba3578F4e37Dd8c157A60D10131BF7A22c7"
+    },
+    "MockOFT": {
+        "lzEndpoint": "0x6EDCE65403992e310A62460808c4b910D972f10f",
+        "delegate": "0xa05d4Ba3578F4e37Dd8c157A60D10131BF7A22c7"
+    }
 }

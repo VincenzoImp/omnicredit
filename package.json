@@ -9,12 +9,14 @@
     "test": "hardhat test",
     "test:solidity": "hardhat test solidity",
     "test:coverage": "hardhat test --coverage",
-    "deploy": "hardhat ignition deploy",
+    "deploy": "hardhat run scripts/deploy.ts --network arbitrumSepolia",
     "deploy:arbitrum": "hardhat ignition deploy ignition/modules/ArbitrumSepolia.ts --network arbitrumSepolia --parameters ignition/parameters/arbitrumSepolia.json",
-    "deploy:sepolia": "hardhat ignition deploy ignition/modules/Sepolia.ts --network sepolia --parameters ignition/parameters/sepolia.json",
-    "deploy:optimism": "hardhat ignition deploy ignition/modules/OptimismSepolia.ts --network optimismSepolia --parameters ignition/parameters/optimismSepolia.json",
+    "deploy:baseSepolia": "tsx scripts/deploy-satellite.ts --chain baseSepolia",
+    "deploy:optimism": "tsx scripts/deploy-satellite.ts --chain optimismSepolia",
     "configure:peers": "hardhat run scripts/configure-peers.ts",
-    "convert:address": "tsx scripts/convert-address-to-bytes32.ts",
+    "configure:peers:arbitrum": "hardhat run scripts/configure-peers.ts --network arbitrumSepolia",
+    "configure:peers:baseSepolia": "hardhat run scripts/configure-peers.ts --network baseSepolia",
+    "configure:peers:optimism": "hardhat run scripts/configure-peers.ts --network optimismSepolia",
     "clean": "hardhat clean"
   },
   "keywords": [

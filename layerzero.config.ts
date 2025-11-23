@@ -16,7 +16,7 @@ import { EndpointId } from "@layerzerolabs/lz-definitions";
 
 // ============ CHAIN ENDPOINT IDs ============
 const ARBITRUM_SEPOLIA_EID = EndpointId.ARBSEP_V2_TESTNET; // 40231
-const SEPOLIA_EID = EndpointId.SEPOLIA_V2_TESTNET; // 40161
+const BASE_SEPOLIA_EID = EndpointId.BASESEP_V2_TESTNET; // 40245
 const OPTIMISM_SEPOLIA_EID = EndpointId.OPTSEP_V2_TESTNET; // 40232
 
 // ============ ARBITRUM SEPOLIA (Main Protocol) ============
@@ -38,27 +38,27 @@ const arbitrumSepoliaContracts = {
   },
 };
 
-// ============ SEPOLIA ============
-const sepoliaContracts = {
+// ============ BASE SEPOLIA ============
+const baseSepoliaContracts = {
   lenderVault: {
-    eid: SEPOLIA_EID,
+    eid: BASE_SEPOLIA_EID,
     contractName: "LenderVault",
     description: "Vault for lenders to deposit MockUSDC and send to ProtocolCore",
   },
   collateralVault: {
-    eid: SEPOLIA_EID,
+    eid: BASE_SEPOLIA_EID,
     contractName: "CollateralVault",
     description: "Vault for borrowers to deposit native tokens (ETH, etc.)",
   },
   mockUSDC: {
-    eid: SEPOLIA_EID,
+    eid: BASE_SEPOLIA_EID,
     contractName: "MockUSDC",
-    description: "Local MockUSDC token for Sepolia",
+    description: "Local MockUSDC token for Base Sepolia",
   },
   mockOFT: {
-    eid: SEPOLIA_EID,
+    eid: BASE_SEPOLIA_EID,
     contractName: "MockOFT",
-    description: "Cross-chain bridge for MockUSDC from Sepolia",
+    description: "Cross-chain bridge for MockUSDC from Base Sepolia",
   },
 };
 
@@ -92,17 +92,17 @@ const optimismSepoliaContracts = {
 export const oftConfig = {
   contracts: [
     { contract: arbitrumSepoliaContracts.mockOFT },
-    { contract: sepoliaContracts.mockOFT },
+    { contract: baseSepoliaContracts.mockOFT },
     { contract: optimismSepoliaContracts.mockOFT },
   ],
   connections: [
-    // Arbitrum Sepolia ↔ Sepolia
+    // Arbitrum Sepolia ↔ Base Sepolia
     {
       from: arbitrumSepoliaContracts.mockOFT,
-      to: sepoliaContracts.mockOFT,
+      to: baseSepoliaContracts.mockOFT,
     },
     {
-      from: sepoliaContracts.mockOFT,
+      from: baseSepoliaContracts.mockOFT,
       to: arbitrumSepoliaContracts.mockOFT,
     },
     // Arbitrum Sepolia ↔ Optimism Sepolia
@@ -116,12 +116,12 @@ export const oftConfig = {
     },
     // Sepolia ↔ Optimism Sepolia
     {
-      from: sepoliaContracts.mockOFT,
+      from: baseSepoliaContracts.mockOFT,
       to: optimismSepoliaContracts.mockOFT,
     },
     {
       from: optimismSepoliaContracts.mockOFT,
-      to: sepoliaContracts.mockOFT,
+      to: baseSepoliaContracts.mockOFT,
     },
   ],
 };
@@ -132,20 +132,20 @@ export const oappConfig = {
   contracts: [
     // Arbitrum Sepolia
     { contract: arbitrumSepoliaContracts.protocolCore },
-    // Sepolia
-    { contract: sepoliaContracts.lenderVault },
-    { contract: sepoliaContracts.collateralVault },
+    // Base Sepolia
+    { contract: baseSepoliaContracts.lenderVault },
+    { contract: baseSepoliaContracts.collateralVault },
     // Optimism Sepolia
     { contract: optimismSepoliaContracts.lenderVault },
     { contract: optimismSepoliaContracts.collateralVault },
   ],
   connections: [
     // ============ LENDER DEPOSITS ============
-    // Sepolia LenderVault → Arbitrum ProtocolCore
+    // Base Sepolia LenderVault → Arbitrum ProtocolCore
     {
-      from: sepoliaContracts.lenderVault,
+      from: baseSepoliaContracts.lenderVault,
       to: arbitrumSepoliaContracts.protocolCore,
-      description: "Lenders deposit MockUSDC on Sepolia, ProtocolCore receives on Arbitrum",
+      description: "Lenders deposit MockUSDC on Base Sepolia, ProtocolCore receives on Arbitrum",
     },
     // Optimism Sepolia LenderVault → Arbitrum ProtocolCore
     {
@@ -166,11 +166,11 @@ export const oappConfig = {
     },
 
     // ============ COLLATERAL UPDATES ============
-    // Sepolia CollateralVault → Arbitrum ProtocolCore
+    // Base Sepolia CollateralVault → Arbitrum ProtocolCore
     {
-      from: sepoliaContracts.collateralVault,
+      from: baseSepoliaContracts.collateralVault,
       to: arbitrumSepoliaContracts.protocolCore,
-      description: "Borrowers deposit native tokens on Sepolia, ProtocolCore updates collateral on Arbitrum",
+      description: "Borrowers deposit native tokens on Base Sepolia, ProtocolCore updates collateral on Arbitrum",
     },
     // Optimism Sepolia CollateralVault → Arbitrum ProtocolCore
     {
@@ -181,8 +181,8 @@ export const oappConfig = {
     // ProtocolCore → CollateralVault (withdrawal approvals)
     {
       from: arbitrumSepoliaContracts.protocolCore,
-      to: sepoliaContracts.collateralVault,
-      description: "ProtocolCore approves collateral withdrawal on Sepolia after loan repayment",
+      to: baseSepoliaContracts.collateralVault,
+      description: "ProtocolCore approves collateral withdrawal on Base Sepolia after loan repayment",
     },
     {
       from: arbitrumSepoliaContracts.protocolCore,
@@ -211,10 +211,10 @@ export const chainConfig = {
     contracts: arbitrumSepoliaContracts,
     role: "Main Protocol",
   },
-  sepolia: {
-    eid: SEPOLIA_EID,
-    chainId: 11155111,
-    contracts: sepoliaContracts,
+  baseSepolia: {
+    eid: BASE_SEPOLIA_EID,
+    chainId: 84532,
+    contracts: baseSepoliaContracts,
     role: "Satellite Chain (Lenders & Borrowers)",
   },
   optimismSepolia: {
