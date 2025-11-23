@@ -6,7 +6,7 @@ import {
   useReadContract,
 } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
-import { getAddress } from '../deployments';
+import { getAddress, DeploymentAddresses } from '../deployments';
 import toast from 'react-hot-toast';
 
 interface ImprovedLenderPanelProps {
@@ -90,8 +90,11 @@ export default function ImprovedLenderPanel({
     isSuccess: isTxSuccess,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const chainKey = selectedChainName.toLowerCase().replace(' ', '') as 'arbitrumsepolia' | 'basesepolia' | 'optimismsepolia';
-  const isArbitrum = chainKey === 'arbitrumsepolia';
+  const chainKey: keyof DeploymentAddresses =
+    selectedChainName.startsWith('Arbitrum') ? 'arbitrumSepolia'
+    : selectedChainName.startsWith('Base') ? 'baseSepolia'
+    : 'optimismSepolia';
+  const isArbitrum = chainKey === 'arbitrumSepolia';
 
   // Get addresses
   const mockUSDCAddress = getAddress(chainKey, 'mockUSDC');

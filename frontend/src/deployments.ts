@@ -1,5 +1,7 @@
-// Deployment addresses loaded from deployments.json
-interface DeploymentAddresses {
+// Deployment addresses loaded from deployments.json (bundled at build-time)
+import rawDeployments from './deployments.json';
+
+export interface DeploymentAddresses {
   arbitrumSepolia: {
     protocolCore: string;
     creditScore: string;
@@ -23,30 +25,18 @@ interface DeploymentAddresses {
   };
 }
 
-export let deployments: DeploymentAddresses | null = null;
+// Typed deployments object, always available
+export const deployments = rawDeployments as DeploymentAddresses;
 
-// Load deployments from the backend
+// Kept for backwards compatibility; now a no-op
 export async function loadDeployments(): Promise<void> {
-  try {
-    const response = await fetch('/deployments.json');
-    if (!response.ok) {
-      throw new Error(`Failed to fetch deployments: ${response.statusText}`);
-    }
-    const data = await response.json();
-    deployments = data;
-    console.log('✅ Deployments loaded:', deployments);
-  } catch (error) {
-    console.error('❌ Failed to load deployments:', error);
-    throw error;
-  }
+  return Promise.resolve();
 }
 
-export function getAddress(chain: keyof DeploymentAddresses, contract: string): `0x${string}` | undefined {
-  if (!deployments) {
-    console.warn('Deployments not loaded yet');
-    return undefined;
-  }
-  
+export function getAddress(
+  chain: keyof DeploymentAddresses,
+  contract: string
+): `0x${string}` | undefined {
   const chainDeployments = deployments[chain] as Record<string, string>;
   const address = chainDeployments[contract];
   

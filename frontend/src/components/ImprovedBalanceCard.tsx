@@ -1,6 +1,6 @@
 import { useAccount, useBalance, useReadContract } from 'wagmi';
 import { formatEther, formatUnits } from 'viem';
-import { getAddress } from '../deployments';
+import { getAddress, DeploymentAddresses } from '../deployments';
 
 interface ImprovedBalanceCardProps {
   chainId: number;
@@ -51,12 +51,16 @@ export default function ImprovedBalanceCard({
   onSelect,
 }: ImprovedBalanceCardProps) {
   const { address } = useAccount();
-  
-  const chainKey = chainName.toLowerCase().replace(' ', '') as 'arbitrumsepolia' | 'basesepolia' | 'optimismsepolia';
+
+  // Map human-readable chain name to deployments key
+  const chainKey: keyof DeploymentAddresses =
+    chainName.startsWith('Arbitrum') ? 'arbitrumSepolia'
+    : chainName.startsWith('Base') ? 'baseSepolia'
+    : 'optimismSepolia';
 
   // Get addresses
   const mockUSDCAddress = getAddress(chainKey, 'mockUSDC');
-  const protocolCoreAddress = chainKey === 'arbitrumsepolia' ? getAddress('arbitrumSepolia', 'protocolCore') : undefined;
+  const protocolCoreAddress = chainKey === 'arbitrumSepolia' ? getAddress('arbitrumSepolia', 'protocolCore') : undefined;
 
   // Get native ETH balance
   const { data: ethBalance } = useBalance({

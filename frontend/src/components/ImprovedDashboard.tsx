@@ -15,8 +15,8 @@ const CHAINS = [
 export default function ImprovedDashboard() {
   const { isConnected } = useAccount();
   const { switchChain } = useSwitchChain();
-  const [selectedChainId, setSelectedChainId] = useState(arbitrumSepolia.id);
-  const [selectedChainName, setSelectedChainName] = useState('Arbitrum Sepolia');
+  const [selectedChainId, setSelectedChainId] = useState<number>(arbitrumSepolia.id);
+  const [selectedChainName, setSelectedChainName] = useState<string>('Arbitrum Sepolia');
 
   console.log('🎨 ImprovedDashboard rendering, isConnected:', isConnected);
 

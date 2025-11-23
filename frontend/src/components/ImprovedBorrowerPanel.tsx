@@ -7,7 +7,7 @@ import {
   useReadContract
 } from 'wagmi';
 import { parseEther, parseUnits, formatEther, formatUnits } from 'viem';
-import { getAddress } from '../deployments';
+import { getAddress, DeploymentAddresses } from '../deployments';
 import { arbitrumSepolia, baseSepolia, optimismSepolia } from 'wagmi/chains';
 import toast from 'react-hot-toast';
 
@@ -113,8 +113,11 @@ export default function ImprovedBorrowerPanel({
     isSuccess: isTxSuccess,
   } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const chainKey = selectedChainName.toLowerCase().replace(' ', '') as 'arbitrumsepolia' | 'basesepolia' | 'optimismsepolia';
-  const isArbitrum = chainKey === 'arbitrumsepolia';
+  const chainKey: keyof DeploymentAddresses =
+    selectedChainName.startsWith('Arbitrum') ? 'arbitrumSepolia'
+    : selectedChainName.startsWith('Base') ? 'baseSepolia'
+    : 'optimismSepolia';
+  const isArbitrum = chainKey === 'arbitrumSepolia';
 
   // Get addresses
   const collateralVaultAddress = getAddress(chainKey, 'collateralVault');
