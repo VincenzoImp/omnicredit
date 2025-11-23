@@ -317,6 +317,57 @@ export default function BorrowerPanel({
   const hasActiveLoan = loanData && loanData[6];
   const formattedCollateralValue = collateralValueUSD ? formatUnits(collateralValueUSD, 6) : '0';
 
+  const handleDepositAndBorrow = async () => {
+    if (!collateralAmount || !borrowAmount || !address || !collateralVaultAddress) return;
+
+    if (isArbitrum) {
+        toast.error("One-Click Borrow is only available on Satellite Chains (Base, Optimism). On Arbitrum, please Deposit then Borrow.");
+        return;
+    }
+
+    // Ensure we are on the selected chain
+    if (currentChainId !== selectedChainId) {
+      try {
+        await switchChainAsync({ chainId: selectedChainId });
+      } catch (error) {
+        toast.error(`Please switch to ${selectedChainName} to deposit collateral`);
+        return;
+      }
+    }
+
+    const toastId = toast.loading('Executing One-Click Borrow...');
+
+    try {
+      const collateralValue = parseEther(collateralAmount);
+      const borrowAmountBN = parseUnits(borrowAmount, 6);
+      // Fee is higher because it sends 2 messages (Deposit + Borrow) + OFT bridging
+      const lzFee = parseEther('0.03'); 
+      const totalValue = collateralValue + lzFee;
+      const dstEid = CHAIN_EIDS[destinationChain]; // Where to receive funds
+
+      if (ethBalance && ethBalance.value < totalValue) {
+        toast.dismiss(toastId);
+        toast.error('Insufficient balance. Need ~0.03 ETH extra for LayerZero fees');
+        return;
+      }
+
+      await writeContractAsync({
+        address: collateralVaultAddress,
+        abi: COLLATERAL_VAULT_ABI,
+        functionName: 'depositNativeAndBorrow',
+        args: [borrowAmountBN, dstEid, borrowAmountBN], // minAmountLD = borrowAmount (no slippage for mock)
+        value: totalValue,
+        chainId: selectedChainId,
+      });
+      toast.dismiss(toastId);
+      toast.success(`One-Click Borrow sent! USDC will arrive on ${destinationChain.replace('Sepolia', '')} in ~2 mins`);
+
+    } catch (error: any) {
+      toast.dismiss(toastId);
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
+    }
+  };
+
   return (
     <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-xl">
       <h2 className="text-3xl font-bold text-white mb-6">🏦 Borrower Actions</h2>
@@ -339,7 +390,86 @@ export default function BorrowerPanel({
         </div>
       )}
 
-      <div className="space-y-6">
+      {!isArbitrum ? (
+        <div className="mb-8 p-6 bg-gradient-to-r from-purple-900/40 to-blue-900/40 rounded-xl border border-purple-500/30">
+            <h3 className="text-xl font-bold text-white mb-2">⚡ One-Click Borrow</h3>
+            <p className="text-white/70 text-sm mb-4">Deposit ETH and Borrow USDC in a single transaction!</p>
+            
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-white/80 text-sm mb-1">Deposit Collateral (ETH)</label>
+                    <input
+                        type="number"
+                        value={collateralAmount}
+                        onChange={(e) => setCollateralAmount(e.target.value)}
+                        placeholder="0.01"
+                        className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white"
+                    />
+                </div>
+                <div>
+                    <label className="block text-white/80 text-sm mb-1">Borrow USDC</label>
+                    <input
+                        type="number"
+                        value={borrowAmount}
+                        onChange={(e) => setBorrowAmount(e.target.value)}
+                        placeholder="10.00"
+                        className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white"
+                    />
+                </div>
+                <div>
+                    <label className="block text-white/80 text-sm mb-1">Receive on</label>
+                    <select 
+                        value={destinationChain}
+                        onChange={(e) => setDestinationChain(e.target.value as any)}
+                        className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white"
+                    >
+                        <option value="arbitrumSepolia">Arbitrum Sepolia</option>
+                        <option value="baseSepolia">Base Sepolia</option>
+                        <option value="optimismSepolia">Optimism Sepolia</option>
+                    </select>
+                </div>
+                
+                <button
+                    onClick={handleDepositAndBorrow}
+                    disabled={isProcessing || !collateralAmount || !borrowAmount}
+                    className="w-full py-3 bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 rounded-lg font-bold text-white transition-all"
+                >
+                    {isProcessing ? '⏳ Processing...' : '🚀 Deposit & Borrow'}
+                </button>
+                <p className="text-center text-white/40 text-xs">Includes ~0.03 ETH LayerZero Fee</p>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-white/20">
+                <h3 className="text-lg font-bold text-white mb-4">Advanced Actions</h3>
+                <div className="space-y-6">
+                    {/* Manual Deposit (Standard) */}
+                    <div>
+                      <label className="block text-white font-semibold mb-2">
+                        Manual Collateral Deposit (ETH)
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={collateralAmount}
+                          onChange={(e) => setCollateralAmount(e.target.value)}
+                          placeholder="0.001"
+                          disabled={isProcessing}
+                          className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
+                        />
+                        <button
+                          onClick={handleDepositCollateral}
+                          disabled={isProcessing || !collateralAmount}
+                          className="px-6 py-3 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
+                        >
+                          {isProcessing ? '⏳' : 'Deposit Only'}
+                        </button>
+                      </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
         {/* Deposit Collateral */}
         <div>
           <label className="block text-white font-semibold mb-2">
@@ -367,15 +497,12 @@ export default function BorrowerPanel({
         {/* Borrow with Destination Selector */}
         <div>
           <label className="block text-white font-semibold mb-2">
-            2️⃣ Borrow USDC {!isArbitrum && <span className="text-yellow-400">(Switch to Arbitrum)</span>}
+            2️⃣ Borrow USDC
           </label>
           
           <div className="bg-purple-500/20 border border-purple-500/50 rounded-lg p-3 mb-3">
             <p className="text-purple-200 text-sm">
               Available Collateral (on Hub): <span className="font-bold">${parseFloat(formattedCollateralValue).toFixed(2)}</span>
-            </p>
-            <p className="text-purple-200 text-xs mt-1">
-               (Deposits may take 1-2 mins to appear here due to cross-chain messaging)
             </p>
           </div>
 
@@ -385,43 +512,35 @@ export default function BorrowerPanel({
             <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setDestinationChain('arbitrumSepolia')}
-                disabled={!isArbitrum}
                 className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
                   destinationChain === 'arbitrumSepolia'
                     ? 'bg-blue-500 text-white'
                     : 'bg-white/20 text-white/60 hover:bg-white/30'
-                } disabled:opacity-50`}
+                }`}
               >
                 Arbitrum
               </button>
               <button
                 onClick={() => setDestinationChain('baseSepolia')}
-                disabled={!isArbitrum}
                 className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
                   destinationChain === 'baseSepolia'
                     ? 'bg-blue-500 text-white'
                     : 'bg-white/20 text-white/60 hover:bg-white/30'
-                } disabled:opacity-50`}
+                }`}
               >
                 Base
               </button>
               <button
                 onClick={() => setDestinationChain('optimismSepolia')}
-                disabled={!isArbitrum}
                 className={`px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
                   destinationChain === 'optimismSepolia'
                     ? 'bg-blue-500 text-white'
                     : 'bg-white/20 text-white/60 hover:bg-white/30'
-                } disabled:opacity-50`}
+                }`}
               >
                 Optimism
               </button>
             </div>
-            {!isArbitrum && (
-              <p className="text-yellow-200 text-xs mt-2">
-                ⚠️ Borrowing must be initiated from Arbitrum (Hub Chain). You will be prompted to switch.
-              </p>
-            )}
           </div>
 
           <div className="flex gap-2">
@@ -435,7 +554,7 @@ export default function BorrowerPanel({
             />
             <button
               onClick={handleBorrow}
-              disabled={isProcessing || !borrowAmount || !isArbitrum}
+              disabled={isProcessing || !borrowAmount}
               className="px-6 py-3 bg-red-500 hover:bg-red-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
             >
               {isProcessing ? '⏳' : 'Borrow'}
@@ -447,7 +566,7 @@ export default function BorrowerPanel({
         {/* Repay */}
         <div>
           <label className="block text-white font-semibold mb-2">
-            3️⃣ Repay Loan {!isArbitrum && <span className="text-yellow-400">(Switch to Arbitrum)</span>}
+            3️⃣ Repay Loan
           </label>
           <div className="flex gap-2">
             <input
@@ -455,12 +574,12 @@ export default function BorrowerPanel({
               value={repayAmount}
               onChange={(e) => setRepayAmount(e.target.value)}
               placeholder="10.00"
-              disabled={isProcessing || !isArbitrum}
+              disabled={isProcessing}
               className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
             />
             <button
               onClick={handleRepay}
-              disabled={isProcessing || !repayAmount || !isArbitrum || !hasActiveLoan}
+              disabled={isProcessing || !repayAmount || !hasActiveLoan}
               className="px-6 py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
             >
               {isProcessing ? '⏳' : 'Repay'}
@@ -468,15 +587,10 @@ export default function BorrowerPanel({
           </div>
           <div className="text-white/50 text-xs mt-1 space-y-1">
             <p>Approval is automatic if needed</p>
-            {!isArbitrum && (
-              <p className="text-yellow-200">
-                ⚠️ Repayment must be processed on Arbitrum (Hub Chain). You will be prompted to switch.
-              </p>
-            )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
-

@@ -54,10 +54,28 @@ export const PROTOCOL_CORE_ABI = [
     type: 'function',
   },
   {
+    inputs: [
+      { name: 'shareAmount', type: 'uint256' },
+      { name: 'dstEid', type: 'uint32' },
+      { name: 'minAmountLD', type: 'uint256' },
+    ],
+    name: 'withdrawCrossChain',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+  {
     inputs: [{ name: 'user', type: 'address' }],
     name: 'shares',
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    name: 'borrow',
+    outputs: [],
+    stateMutability: 'nonpayable',
     type: 'function',
   },
   {
@@ -110,6 +128,47 @@ export const COLLATERAL_VAULT_ABI = [
     stateMutability: 'payable',
     type: 'function',
   },
+  {
+    inputs: [
+      { name: 'borrowAmount', type: 'uint256' },
+      { name: 'dstEid', type: 'uint32' },
+      { name: 'minAmountLD', type: 'uint256' },
+    ],
+    name: 'depositNativeAndBorrow',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'asset', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'depositToken',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'asset', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'withdraw',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'asset', type: 'address' },
+    ],
+    name: 'getUserCollateral',
+    outputs: [{ name: 'amount', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 export const LENDER_VAULT_ABI = [
@@ -121,6 +180,13 @@ export const LENDER_VAULT_ABI = [
     name: 'deposit',
     outputs: [{ name: 'guid', type: 'bytes32' }],
     stateMutability: 'payable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'guid', type: 'bytes32' }],
+    name: 'checkAndRefund',
+    outputs: [],
+    stateMutability: 'nonpayable',
     type: 'function',
   },
 ] as const;
