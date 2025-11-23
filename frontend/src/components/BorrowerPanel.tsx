@@ -101,6 +101,8 @@ export default function BorrowerPanel() {
   const handleDepositCollateral = async () => {
     if (!collateralAmount || !isOnBase || !address) return;
     
+    const toastId = toast.loading('Preparing transaction...');
+    
     try {
       const collateralValue = parseEther(collateralAmount);
       const lzFee = parseEther('0.01'); // LayerZero fee estimate
@@ -108,23 +110,40 @@ export default function BorrowerPanel() {
       
       // Check if user has enough balance
       if (baseBalance && baseBalance.value < totalValue) {
+        toast.dismiss(toastId);
         toast.error('Insufficient balance. You need extra ETH for LayerZero fees (~0.01 ETH)');
         return;
       }
       
-      const toastId = toast.loading('Depositing collateral...');
-      
-      const hash = await writeContractAsync({
-        address: getAddress('baseSepolia', 'collateralVault'),
-        abi: COLLATERAL_VAULT_ABI,
-        functionName: 'depositNative',
-        value: totalValue,
-        chainId: baseSepolia.id,
-      });
-      
-      toast.dismiss(toastId);
-      toast.loading('Waiting for confirmation...', { id: hash });
+      try {
+        const hash = await writeContractAsync({
+          address: getAddress('baseSepolia', 'collateralVault'),
+          abi: COLLATERAL_VAULT_ABI,
+          functionName: 'depositNative',
+          value: totalValue,
+          chainId: baseSepolia.id,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      } catch (estimationError: any) {
+        console.warn('Gas estimation failed, using manual limit:', estimationError);
+        toast.loading('Retrying with manual gas limit...', { id: toastId });
+        
+        const hash = await writeContractAsync({
+          address: getAddress('baseSepolia', 'collateralVault'),
+          abi: COLLATERAL_VAULT_ABI,
+          functionName: 'depositNative',
+          value: totalValue,
+          chainId: baseSepolia.id,
+          gas: 500000n,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      }
     } catch (error: any) {
+      toast.dismiss(toastId);
       console.error('Deposit collateral error:', error);
       toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
@@ -133,23 +152,43 @@ export default function BorrowerPanel() {
   const handleBorrow = async () => {
     if (!borrowAmount || !isOnArbitrum || !address) return;
     
+    const toastId = toast.loading('Preparing transaction...');
+    
     try {
       const amountBN = parseUnits(borrowAmount, 6);
-      const toastId = toast.loading('Initiating cross-chain borrow...');
       
       // Optimism Sepolia EID = 40232
-      const hash = await writeContractAsync({
-        address: getAddress('arbitrumSepolia', 'protocolCore'),
-        abi: PROTOCOL_CORE_ABI,
-        functionName: 'borrowCrossChain',
-        args: [amountBN, 40232, amountBN],
-        value: parseEther('0.02'), // LayerZero fee for OFT transfer
-        chainId: arbitrumSepolia.id,
-      });
-      
-      toast.dismiss(toastId);
-      toast.loading('Waiting for confirmation...', { id: hash });
+      try {
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          abi: PROTOCOL_CORE_ABI,
+          functionName: 'borrowCrossChain',
+          args: [amountBN, 40232, amountBN],
+          value: parseEther('0.02'), // LayerZero fee for OFT transfer
+          chainId: arbitrumSepolia.id,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      } catch (estimationError: any) {
+        console.warn('Gas estimation failed, using manual limit:', estimationError);
+        toast.loading('Retrying with manual gas limit...', { id: toastId });
+        
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          abi: PROTOCOL_CORE_ABI,
+          functionName: 'borrowCrossChain',
+          args: [amountBN, 40232, amountBN],
+          value: parseEther('0.02'),
+          chainId: arbitrumSepolia.id,
+          gas: 1000000n,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      }
     } catch (error: any) {
+      toast.dismiss(toastId);
       console.error('Borrow error:', error);
       toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
@@ -158,21 +197,40 @@ export default function BorrowerPanel() {
   const handleRepay = async () => {
     if (!repayAmount || !isOnArbitrum || !address) return;
     
+    const toastId = toast.loading('Preparing transaction...');
+    
     try {
       const amountBN = parseUnits(repayAmount, 6);
-      const toastId = toast.loading('Repaying loan...');
       
-      const hash = await writeContractAsync({
-        address: getAddress('arbitrumSepolia', 'protocolCore'),
-        abi: PROTOCOL_CORE_ABI,
-        functionName: 'repay',
-        args: [amountBN],
-        chainId: arbitrumSepolia.id,
-      });
-      
-      toast.dismiss(toastId);
-      toast.loading('Waiting for confirmation...', { id: hash });
+      try {
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          abi: PROTOCOL_CORE_ABI,
+          functionName: 'repay',
+          args: [amountBN],
+          chainId: arbitrumSepolia.id,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      } catch (estimationError: any) {
+        console.warn('Gas estimation failed, using manual limit:', estimationError);
+        toast.loading('Retrying with manual gas limit...', { id: toastId });
+        
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          abi: PROTOCOL_CORE_ABI,
+          functionName: 'repay',
+          args: [amountBN],
+          chainId: arbitrumSepolia.id,
+          gas: 300000n,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      }
     } catch (error: any) {
+      toast.dismiss(toastId);
       console.error('Repay error:', error);
       toast.error(error.shortMessage || error.message || 'Transaction failed');
     }

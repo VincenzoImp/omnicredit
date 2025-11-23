@@ -97,7 +97,7 @@ export default function LenderPanel() {
   useEffect(() => {
     if (writeError) {
       console.error('Write error:', writeError);
-      toast.error(`Transaction failed: ${writeError.message}`);
+      toast.error(`Transaction failed: ${writeError.shortMessage || writeError.message}`);
     }
     if (txError) {
       console.error('TX error:', txError);
@@ -108,21 +108,42 @@ export default function LenderPanel() {
   const handleMint = async () => {
     if (!amount || !isOnArbitrum || !address) return;
     
+    const toastId = toast.loading('Preparing transaction...');
+    
     try {
       const amountBN = parseUnits(amount, 6);
-      const toastId = toast.loading('Minting MockUSDC...');
       
-      const hash = await writeContractAsync({
-        address: getAddress('arbitrumSepolia', 'mockUSDC'),
-        abi: MOCKUSDC_ABI,
-        functionName: 'mint',
-        args: [amountBN],
-        chainId: arbitrumSepolia.id,
-      });
-      
-      toast.dismiss(toastId);
-      toast.loading('Waiting for confirmation...', { id: hash });
+      // Try with auto gas estimation first
+      try {
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'mockUSDC'),
+          abi: MOCKUSDC_ABI,
+          functionName: 'mint',
+          args: [amountBN],
+          chainId: arbitrumSepolia.id,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      } catch (estimationError: any) {
+        // If estimation fails, retry with manual gas limit
+        console.warn('Gas estimation failed, using manual limit:', estimationError);
+        toast.loading('Retrying with manual gas limit...', { id: toastId });
+        
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'mockUSDC'),
+          abi: MOCKUSDC_ABI,
+          functionName: 'mint',
+          args: [amountBN],
+          chainId: arbitrumSepolia.id,
+          gas: 200000n,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      }
     } catch (error: any) {
+      toast.dismiss(toastId);
       console.error('Mint error:', error);
       toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
@@ -131,21 +152,40 @@ export default function LenderPanel() {
   const handleApprove = async () => {
     if (!amount || !isOnArbitrum || !address) return;
     
+    const toastId = toast.loading('Preparing transaction...');
+    
     try {
       const amountBN = parseUnits(amount, 6);
-      const toastId = toast.loading('Approving USDC...');
       
-      const hash = await writeContractAsync({
-        address: getAddress('arbitrumSepolia', 'mockUSDC'),
-        abi: MOCKUSDC_ABI,
-        functionName: 'approve',
-        args: [getAddress('arbitrumSepolia', 'protocolCore'), amountBN],
-        chainId: arbitrumSepolia.id,
-      });
-      
-      toast.dismiss(toastId);
-      toast.loading('Waiting for confirmation...', { id: hash });
+      try {
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'mockUSDC'),
+          abi: MOCKUSDC_ABI,
+          functionName: 'approve',
+          args: [getAddress('arbitrumSepolia', 'protocolCore'), amountBN],
+          chainId: arbitrumSepolia.id,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      } catch (estimationError: any) {
+        console.warn('Gas estimation failed, using manual limit:', estimationError);
+        toast.loading('Retrying with manual gas limit...', { id: toastId });
+        
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'mockUSDC'),
+          abi: MOCKUSDC_ABI,
+          functionName: 'approve',
+          args: [getAddress('arbitrumSepolia', 'protocolCore'), amountBN],
+          chainId: arbitrumSepolia.id,
+          gas: 100000n,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      }
     } catch (error: any) {
+      toast.dismiss(toastId);
       console.error('Approve error:', error);
       toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
@@ -154,21 +194,40 @@ export default function LenderPanel() {
   const handleDeposit = async () => {
     if (!amount || !isOnArbitrum || !address) return;
     
+    const toastId = toast.loading('Preparing transaction...');
+    
     try {
       const amountBN = parseUnits(amount, 6);
-      const toastId = toast.loading('Depositing USDC...');
       
-      const hash = await writeContractAsync({
-        address: getAddress('arbitrumSepolia', 'protocolCore'),
-        abi: PROTOCOL_CORE_ABI,
-        functionName: 'deposit',
-        args: [amountBN],
-        chainId: arbitrumSepolia.id,
-      });
-      
-      toast.dismiss(toastId);
-      toast.loading('Waiting for confirmation...', { id: hash });
+      try {
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          abi: PROTOCOL_CORE_ABI,
+          functionName: 'deposit',
+          args: [amountBN],
+          chainId: arbitrumSepolia.id,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      } catch (estimationError: any) {
+        console.warn('Gas estimation failed, using manual limit:', estimationError);
+        toast.loading('Retrying with manual gas limit...', { id: toastId });
+        
+        const hash = await writeContractAsync({
+          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          abi: PROTOCOL_CORE_ABI,
+          functionName: 'deposit',
+          args: [amountBN],
+          chainId: arbitrumSepolia.id,
+          gas: 300000n,
+        });
+        
+        toast.dismiss(toastId);
+        toast.loading('Waiting for confirmation...', { id: hash });
+      }
     } catch (error: any) {
+      toast.dismiss(toastId);
       console.error('Deposit error:', error);
       toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
