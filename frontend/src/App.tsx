@@ -10,6 +10,8 @@ import './index.css';
 const queryClient = new QueryClient();
 
 function App() {
+  console.log('🚀 App component rendering');
+  
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>

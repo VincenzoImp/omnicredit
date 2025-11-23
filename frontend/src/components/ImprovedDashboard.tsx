@@ -18,15 +18,32 @@ export default function ImprovedDashboard() {
   const [selectedChainId, setSelectedChainId] = useState(arbitrumSepolia.id);
   const [selectedChainName, setSelectedChainName] = useState('Arbitrum Sepolia');
 
+  console.log('🎨 ImprovedDashboard rendering, isConnected:', isConnected);
+
   const handleChainSelect = (chainId: number, chainName: string) => {
     setSelectedChainId(chainId);
     setSelectedChainName(chainName);
     // Also switch the wallet to this chain
-    switchChain({ chainId });
+    if (switchChain) {
+      switchChain({ chainId });
+    }
   };
 
   return (
     <div className="min-h-screen p-8">
+      {/* Debug div */}
+      <div style={{ 
+        position: 'fixed', 
+        top: 0, 
+        left: 0, 
+        background: 'red', 
+        color: 'white', 
+        padding: '10px',
+        zIndex: 9999 
+      }}>
+        Dashboard Loaded! Connected: {isConnected ? 'Yes' : 'No'}
+      </div>
+      
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
