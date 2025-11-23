@@ -34,7 +34,7 @@ const config = {
 
     sepolia: {
       type: "http",
-      url: process.env.SEPOLIA_RPC_URL || "https://rpc.ankr.com/eth_sepolia",
+      url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 11155111,
     },

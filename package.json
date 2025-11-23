@@ -11,6 +11,7 @@
     "test:coverage": "hardhat test --coverage",
     "deploy": "hardhat ignition deploy",
     "deploy:base-protocol": "tsx scripts/deploy-base-protocol.ts",
+    "deploy:cross-chain": "tsx scripts/deploy-cross-chain.ts",
     "clean": "hardhat clean"
   },
   "keywords": [
