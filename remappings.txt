@@ -1,9 +1,6 @@
 v4-core/=lib/v4-core/
-v4-periphery/=lib/v4-periphery/
 @uniswap/v4-core/=lib/v4-core/
 @uniswap/v4-periphery/=lib/v4-periphery/
 @openzeppelin/=node_modules/@openzeppelin/
 @layerzerolabs/=node_modules/@layerzerolabs/
 @pythnetwork/=node_modules/@pythnetwork/
-forge-std/=lib/v4-core/lib/forge-std/src/
-solidity-bytes-utils/=node_modules/solidity-bytes-utils/

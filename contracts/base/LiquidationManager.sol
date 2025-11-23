@@ -16,12 +16,11 @@ import {ProtocolCore} from "./ProtocolCore.sol";
 /**
  * @title LiquidationManager
  * @notice Clean rewrite of liquidation system with Uniswap v4 integration
- * @dev Executes liquidations through Uniswap v4 pools with dynamic fees
+ * @dev Executes liquidations through Uniswap v4 pools
  *
  * Key Features:
  * - Dutch auction liquidations (0% → 10% discount over 1 hour)
  * - Liquidations execute through Uniswap v4 pools
- * - Triggers DynamicLiquidationHook for LVR mitigation
  * - Credit score penalties for liquidated borrowers
  * - MEV-resistant pricing
  *
@@ -29,10 +28,10 @@ import {ProtocolCore} from "./ProtocolCore.sol";
  * 1. Anyone can start liquidation auction for underwater position
  * 2. Liquidator calls executeLiquidation()
  * 3. LiquidationManager calls poolManager.swap()
- * 4. Swap triggers DynamicLiquidationHook for LVR mitigation.beforeSwap()
- * 5. Hook applies volatility-based fee
- * 6. Swap executes
- * 7. Hook tracks price in afterSwap()
+ * 4. Swap executes collateral → USDC
+ * 5. Debt is repaid to protocol
+ * 6. Surplus goes to protocol reserves
+ * 7. Borrower's credit score is penalized
  * 8. Liquidation completes
  */
 contract LiquidationManager is ReentrancyGuard, Ownable {
@@ -48,7 +47,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
 
     /// @notice Uniswap v4 integration
     IPoolManager public poolManager;
-    PoolKey public liquidationPool;  // ETH-USDC pool with DynamicLiquidationHook
+    PoolKey public liquidationPool;  // ETH-USDC pool for liquidations
 
     /// @notice Dutch auction parameters
     uint256 public auctionDuration = 1 hours;      // Time for bonus to decrease
@@ -103,7 +102,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
     ) {
         priceOracle = PriceOracle(_priceOracle);
         creditScore = ContinuousCreditScore(_creditScore);
-        lendingPool = ProtocolCore(_lendingPool);
+        lendingPool = ProtocolCore(payable(_lendingPool));
         usdc = IERC20(_usdc);
         _transferOwnership(msg.sender);
     }
@@ -113,9 +112,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
     /**
      * @notice Set Uniswap v4 pool manager and liquidation pool
      * @param _poolManager IPoolManager contract address
-     * @param _poolKey Pool key for ETH-USDC pool with liquidation hook
-     *
-     * IMPORTANT: The pool must have DynamicLiquidationHook attached!
+     * @param _poolKey Pool key for ETH-USDC pool for liquidations
      */
     function setPoolManager(
         address _poolManager,
@@ -133,7 +130,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
      * @param _lendingPool New ProtocolCore address
      */
     function setLendingPool(address _lendingPool) external onlyOwner {
-        lendingPool = ProtocolCore(_lendingPool);
+        lendingPool = ProtocolCore(payable(_lendingPool));
     }
 
     // ============ LIQUIDATION FUNCTIONS ============
@@ -200,8 +197,8 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
      * This function:
      * 1. Calculates current discount based on Dutch auction
      * 2. Swaps collateral → USDC through Uniswap v4 pool
-     * 3. Triggers DynamicLiquidationHook for dynamic fee
-     * 4. Repays debt on behalf of borrower
+     * 3. Repays debt on behalf of borrower
+     * 4. Sends surplus to protocol reserves
      * 5. Penalizes borrower's credit score
      */
     function executeLiquidation(bytes32 auctionId) external nonReentrant {
@@ -211,9 +208,6 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
 
         // Mark auction as complete
         auction.isActive = false;
-
-        // Encode hook data to signal this is a liquidation
-        bytes memory hookData = abi.encode(true); // isLiquidation = true
 
         // Prepare swap parameters
         // zeroForOne: true (ETH → USDC)
@@ -226,7 +220,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
         });
 
         // Execute swap through Uniswap v4 pool
-        // This triggers DynamicLiquidationHook.beforeSwap() and afterSwap()
+        bytes memory hookData = ""; // Empty hook data
         BalanceDelta delta = poolManager.swap(liquidationPool, swapParams, hookData);
 
         // Extract USDC received from swap

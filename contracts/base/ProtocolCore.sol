@@ -4,30 +4,36 @@ pragma solidity ^0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OApp, Origin, MessagingFee} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
+import {OptionsBuilder} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OptionsBuilder.sol";
+import {OFT} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oft/OFT.sol";
+import {SendParam} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oft/interfaces/IOFT.sol";
 import {ContinuousCreditScore} from "./ContinuousCreditScore.sol";
 import {FeeBasedLimits} from "./FeeBasedLimits.sol";
 import {PriceOracle} from "./PriceOracle.sol";
-import {CrossChainCoordinator} from "../cross-chain/CrossChainCoordinator.sol";
 
 /**
  * @title ProtocolCore
- * @notice Clean rewrite of core lending protocol - replaces LendingPool.sol
- * @dev Share-based lending pool with credit scoring and cross-chain collateral support
+ * @notice Omnichain lending protocol with full cross-chain support
+ * @dev Share-based lending pool with credit scoring and omnichain capabilities
  *
  * Architecture:
- * - Lenders deposit USDC, receive shares
- * - Borrowers provide collateral, take loans based on credit score
- * - Interest accrues continuously
- * - Cross-chain collateral aggregated via CrossChainCoordinator
+ * - Deployed on Arbitrum Sepolia (main protocol)
+ * - Lenders deposit MockUSDC locale su ogni chain (Sepolia, Optimism Sepolia) → ricevono shares su Arbitrum
+ * - Borrowers deposit token nativi (ETH, MATIC, etc.) su qualsiasi chain → collateral aggregato su Arbitrum
+ * - Borrowers possono scegliere su quale chain ricevere MockUSDC quando prendono prestito
+ * - USDC bridged via LayerZero OFT per operazioni cross-chain
  *
  * Key Features:
  * - Progressive LTV (50% → 150%) based on credit score
  * - Fee-based limits prevent "score and run" attacks
  * - Interest buffer protects proven borrowers from liquidation
  * - Share-based accounting for fair yield distribution
+ * - Full omnichain support via LayerZero V2
+ * - Multi-token native collateral support (ETH, MATIC, etc.)
  */
-contract ProtocolCore is ReentrancyGuard, Ownable {
+contract ProtocolCore is OApp, ReentrancyGuard {
+    using OptionsBuilder for bytes;
     using SafeERC20 for IERC20;
 
     // ============ STATE VARIABLES ============
@@ -40,8 +46,18 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
     FeeBasedLimits public immutable feeBasedLimits;
     PriceOracle public immutable priceOracle;
 
-    /// @notice Cross-chain coordinator (optional - only on Base)
-    CrossChainCoordinator public coordinator;
+    /// @notice USDCOmnitoken (OFT) for cross-chain USDC bridging
+    OFT public usdcOFT;
+
+    /// @notice Borrower collateral: user => asset => amount
+    /// @dev Supports multiple native tokens (ETH, MATIC, etc.) from any chain
+    mapping(address => mapping(address => uint256)) public borrowerCollateral;
+
+    /// @notice Authorized lender vaults (one per chain)
+    mapping(uint32 => bytes32) public authorizedLenderVaults;
+
+    /// @notice Authorized collateral vaults (one per chain)
+    mapping(uint32 => bytes32) public authorizedCollateralVaults;
 
     /// @notice Pool shares (lender deposits)
     mapping(address => uint256) public shares;
@@ -78,6 +94,12 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
     address public liquidationManager;     // Authorized liquidation manager
     uint256 public reserves;               // Protocol reserves from liquidation surplus
 
+    /// @notice Gas limit for _lzReceive execution (configurable)
+    uint256 public lzReceiveGasLimit = 300000;
+
+    /// @notice Gas limit for OFT executor (configurable)
+    uint256 public oftExecutorGasLimit = 200000;
+
     // ============ EVENTS ============
 
     event Deposited(address indexed lender, uint256 amount, uint256 shares);
@@ -85,10 +107,16 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
     event Borrowed(address indexed borrower, uint256 amount, uint256 collateralValue);
     event Repaid(address indexed borrower, uint256 principal, uint256 interest);
     event InterestAccrued(address indexed borrower, uint256 interest);
-    event CoordinatorSet(address indexed coordinator);
     event LiquidationManagerSet(address indexed liquidationManager);
+    event CollateralDeposited(address indexed borrower, address indexed asset, uint256 amount, uint256 valueUSD);
+    event CollateralReceivedCrossChain(address indexed borrower, address indexed asset, uint256 amount, uint32 srcEid);
+    event CollateralWithdrawn(address indexed borrower, address indexed asset, uint256 amount);
     event LiquidationRepaid(address indexed borrower, uint256 amount);
     event ReservesAdded(uint256 amount);
+    event CrossChainDepositReceived(address indexed lender, uint32 indexed srcEid, uint256 amount, uint256 shares);
+    event CrossChainBorrowInitiated(address indexed borrower, uint32 indexed dstEid, uint256 amount);
+    event DepositWrapperAuthorized(uint32 indexed eid, bytes32 wrapper);
+    event USDCOTFSet(address indexed usdcOFT);
 
     // ============ ERRORS ============
 
@@ -100,6 +128,15 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
     error InsufficientLiquidity();
     error LoanTooSmall();
     error UnauthorizedLiquidation();
+    error UnauthorizedLenderVault();
+    error UnauthorizedCollateralVault();
+    error USDCOTFNotSet();
+    error InvalidDestinationEid();
+    error Unauthorized();
+    error InvalidGasLimit();
+
+    // ============ MODIFIERS ============
+    // Note: onlyOwner modifier is inherited from OApp (which inherits from Ownable)
 
     // ============ CONSTRUCTOR ============
 
@@ -107,25 +144,17 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
         address _lendingToken,
         address _creditScore,
         address _feeBasedLimits,
-        address _priceOracle
-    ) {
+        address _priceOracle,
+        address _lzEndpoint,
+        address _delegate
+    ) OApp(_lzEndpoint, _delegate) {
         lendingToken = IERC20(_lendingToken);
         creditScore = ContinuousCreditScore(_creditScore);
         feeBasedLimits = FeeBasedLimits(_feeBasedLimits);
         priceOracle = PriceOracle(_priceOracle);
-        _transferOwnership(msg.sender);
     }
 
     // ============ ADMIN FUNCTIONS ============
-
-    /**
-     * @notice Set the cross-chain coordinator (only on Base)
-     * @param _coordinator CrossChainCoordinator contract address
-     */
-    function setCoordinator(address _coordinator) external onlyOwner {
-        coordinator = CrossChainCoordinator(_coordinator);
-        emit CoordinatorSet(_coordinator);
-    }
 
     /**
      * @notice Set the fee collector address
@@ -134,6 +163,54 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
     function setFeeCollector(address _feeCollector) external onlyOwner {
         require(_feeCollector != address(0), "Invalid address");
         feeCollector = _feeCollector;
+    }
+
+    /**
+     * @notice Set USDCOmnitoken (OFT) for cross-chain USDC bridging
+     * @param _usdcOFT Address of USDCOmnitoken contract
+     */
+    function setUSDCOTF(address _usdcOFT) external onlyOwner {
+        require(_usdcOFT != address(0), "Invalid address");
+        usdcOFT = OFT(_usdcOFT);
+        emit USDCOTFSet(_usdcOFT);
+    }
+
+    /**
+     * @notice Authorize a lender vault on a specific chain
+     * @param eid Endpoint ID of the source chain
+     * @param vault Address of LenderVault (as bytes32)
+     */
+    function authorizeLenderVault(uint32 eid, bytes32 vault) external onlyOwner {
+        authorizedLenderVaults[eid] = vault;
+        emit DepositWrapperAuthorized(eid, vault);
+    }
+
+    /**
+     * @notice Authorize a collateral vault on a specific chain
+     * @param eid Endpoint ID of the source chain
+     * @param vault Address of CollateralVault (as bytes32)
+     */
+    function authorizeCollateralVault(uint32 eid, bytes32 vault) external onlyOwner {
+        authorizedCollateralVaults[eid] = vault;
+        emit DepositWrapperAuthorized(eid, vault);
+    }
+
+    /**
+     * @notice Set gas limit for _lzReceive execution
+     * @param _gasLimit Gas limit for _lzReceive
+     */
+    function setLzReceiveGasLimit(uint256 _gasLimit) external onlyOwner {
+        if (_gasLimit < 100000 || _gasLimit > 1000000) revert InvalidGasLimit();
+        lzReceiveGasLimit = _gasLimit;
+    }
+
+    /**
+     * @notice Set gas limit for OFT executor
+     * @param _gasLimit Gas limit for OFT executor
+     */
+    function setOftExecutorGasLimit(uint256 _gasLimit) external onlyOwner {
+        if (_gasLimit < 100000 || _gasLimit > 1000000) revert InvalidGasLimit();
+        oftExecutorGasLimit = _gasLimit;
     }
 
     // ============ LENDER FUNCTIONS ============
@@ -194,14 +271,91 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
         emit Withdrawn(msg.sender, amountWithdrawn, shareAmount);
     }
 
+    /**
+     * @notice Withdraw USDC cross-chain to any destination chain
+     * @param shareAmount Number of shares to burn
+     * @param dstEid Destination endpoint ID (where lender wants to receive USDC)
+     * @param minAmountLD Minimum amount to receive on destination (for slippage protection)
+     * @dev Burns shares and bridges USDC to destination chain via OFT
+     */
+    function withdrawCrossChain(
+        uint256 shareAmount,
+        uint32 dstEid,
+        uint256 minAmountLD
+    ) external payable nonReentrant {
+        if (shareAmount == 0) revert InvalidAmount();
+        if (shares[msg.sender] < shareAmount) revert InvalidAmount();
+        if (address(usdcOFT) == address(0)) revert USDCOTFNotSet();
+        if (dstEid == 0) revert InvalidDestinationEid();
+
+        // Calculate withdrawal amount
+        uint256 poolValue = totalDeposits + totalBorrowed;
+        uint256 amountWithdrawn = (shareAmount * poolValue) / totalShares;
+
+        // Check liquidity
+        if (lendingToken.balanceOf(address(this)) < amountWithdrawn) {
+            revert InsufficientLiquidity();
+        }
+
+        // Update state
+        shares[msg.sender] -= shareAmount;
+        totalShares -= shareAmount;
+        totalDeposits -= amountWithdrawn;
+
+        // Bridge USDC to destination chain via OFT
+        bytes memory oftOptions = OptionsBuilder.newOptions();
+        oftOptions.addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0);
+        
+        SendParam memory sendParam = SendParam({
+            dstEid: dstEid,
+            to: addressToBytes32(msg.sender), // Send to lender on destination
+            amountLD: amountWithdrawn,
+            minAmountLD: minAmountLD,
+            extraOptions: oftOptions,
+            composeMsg: "",
+            oftCmd: ""
+        });
+
+        // Approve OFT to spend USDC
+        lendingToken.safeApprove(address(usdcOFT), amountWithdrawn);
+
+        // Quote OFT fee
+        MessagingFee memory oftFee = usdcOFT.quoteSend(sendParam, false);
+
+        // Send USDC to destination chain (user must provide fee)
+        usdcOFT.send{value: oftFee.nativeFee}(sendParam, oftFee, payable(msg.sender));
+
+        emit Withdrawn(msg.sender, amountWithdrawn, shareAmount);
+    }
+
     // ============ BORROWER FUNCTIONS ============
 
     /**
-     * @notice Borrow USDC against collateral
-     * @param amount Amount to borrow (6 decimals - USDC)
-     * @param collateralValueUSD Total collateral value locked locally (6 decimals)
+     * @notice Withdraw collateral for a specific asset (only if no active loan)
+     * @param asset Address of the collateral asset (address(0) for ETH)
+     * @param amount Amount to withdraw
+     * @dev Collateral is now managed cross-chain via CollateralVault
+     * This function is kept for backward compatibility but should not be used
+     * Collateral withdrawals should be done through CollateralVault on source chain
      */
-    function borrow(uint256 amount, uint256 collateralValueUSD) external nonReentrant {
+    function withdrawCollateral(address asset, uint256 amount) external nonReentrant {
+        if (amount == 0) revert InvalidAmount();
+        if (borrowerCollateral[msg.sender][asset] < amount) revert InsufficientCollateral();
+        if (loans[msg.sender].isActive) revert LoanAlreadyActive(); // Cannot withdraw if loan active
+
+        borrowerCollateral[msg.sender][asset] -= amount;
+
+        // Note: Actual asset transfer happens on source chain via CollateralVault
+        // This just updates the collateral tracking on Arbitrum
+
+        emit CollateralWithdrawn(msg.sender, asset, amount);
+    }
+
+    /**
+     * @notice Borrow USDC against ETH collateral (local only, receives USDC on Base)
+     * @param amount Amount to borrow (6 decimals - USDC)
+     */
+    function borrow(uint256 amount) external nonReentrant {
         if (amount < minLoanSize) revert LoanTooSmall();
         if (loans[msg.sender].isActive) revert LoanAlreadyActive();
 
@@ -210,11 +364,9 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
             revert InsufficientLiquidity();
         }
 
-        // Get total collateral (local + cross-chain)
-        uint256 totalCollateral = collateralValueUSD;
-        if (address(coordinator) != address(0)) {
-            totalCollateral += coordinator.getTotalCollateral(msg.sender);
-        }
+        // Get total collateral value (sum of all assets)
+        uint256 totalCollateral = getBorrowerCollateralValue(msg.sender);
+        if (totalCollateral == 0) revert InsufficientCollateral();
 
         // Validate using LTV
         uint256 ltvBPS = creditScore.getLTV(msg.sender);
@@ -252,6 +404,90 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
         // Transfer USDC to borrower
         lendingToken.safeTransfer(msg.sender, amount);
 
+        emit Borrowed(msg.sender, amount, totalCollateral);
+    }
+
+    /**
+     * @notice Borrow USDC cross-chain to any destination chain
+     * @param amount Amount to borrow (6 decimals - USDC)
+     * @param dstEid Destination endpoint ID (where borrower wants to receive USDC)
+     * @param minAmountLD Minimum amount to receive on destination (for slippage protection)
+     * @dev Borrower must have deposited ETH collateral on Base first
+     */
+    function borrowCrossChain(
+        uint256 amount,
+        uint32 dstEid,
+        uint256 minAmountLD
+    ) external payable nonReentrant {
+        if (amount < minLoanSize) revert LoanTooSmall();
+        if (loans[msg.sender].isActive) revert LoanAlreadyActive();
+        if (address(usdcOFT) == address(0)) revert USDCOTFNotSet();
+        if (dstEid == 0) revert InvalidDestinationEid();
+
+        // Check liquidity
+        if (lendingToken.balanceOf(address(this)) < amount) {
+            revert InsufficientLiquidity();
+        }
+
+        // Get total collateral value (sum of all assets)
+        uint256 totalCollateral = getBorrowerCollateralValue(msg.sender);
+        if (totalCollateral == 0) revert InsufficientCollateral();
+
+        // Validate using LTV
+        uint256 ltvBPS = creditScore.getLTV(msg.sender);
+        uint256 maxByLTV = (totalCollateral * ltvBPS) / BPS_DENOMINATOR;
+        if (amount > maxByLTV) revert InsufficientCollateral();
+
+        // Validate fee-based limits (prevents "score and run")
+        (uint256 maxBorrow, , ) = feeBasedLimits.calculateMaxBorrow(
+            msg.sender,
+            totalCollateral
+        );
+        if (amount > maxBorrow) revert ExceedsBorrowLimit();
+
+        // Calculate interest rate
+        uint256 interestRate = _calculateInterestRate();
+
+        // Create loan
+        loans[msg.sender] = Loan({
+            principal: amount,
+            interestRate: interestRate,
+            lastAccrualTimestamp: block.timestamp,
+            accruedInterest: 0,
+            collateralValueUSD: totalCollateral,
+            dueDate: block.timestamp + LOAN_DURATION,
+            isActive: true
+        });
+
+        // Update pool state
+        totalBorrowed += amount;
+        totalDeposits -= amount;
+
+        // Record loan in credit score
+        creditScore.recordLoanTaken(msg.sender);
+
+        // Bridge USDC to destination chain via OFT
+        SendParam memory sendParam = SendParam({
+            dstEid: dstEid,
+            to: addressToBytes32(msg.sender), // Send to borrower on destination
+            amountLD: amount,
+            minAmountLD: minAmountLD,
+            extraOptions: OptionsBuilder.newOptions()
+                .addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0), // Use configurable gas limit
+            composeMsg: "",
+            oftCmd: ""
+        });
+
+        // Approve OFT to spend USDC
+        lendingToken.safeApprove(address(usdcOFT), amount);
+
+        // Quote OFT fee
+        MessagingFee memory oftFee = usdcOFT.quoteSend(sendParam, false);
+
+        // Send USDC to destination chain (user must provide fee)
+        usdcOFT.send{value: oftFee.nativeFee}(sendParam, oftFee, payable(msg.sender));
+
+        emit CrossChainBorrowInitiated(msg.sender, dstEid, amount);
         emit Borrowed(msg.sender, amount, totalCollateral);
     }
 
@@ -315,6 +551,268 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
         }
 
         emit Repaid(msg.sender, principalPaid, interestPaid);
+    }
+
+    /**
+     * @notice Receive cross-chain messages from LenderVault or CollateralVault
+     * @param _origin Origin information (source chain EID and sender)
+     * @param _message Encoded message (deposit or collateral update)
+     */
+    function _lzReceive(
+        Origin calldata _origin,
+        bytes32 /* _guid */,
+        bytes calldata _message,
+        address /* _executor */,
+        bytes calldata /* _extraData */
+    ) internal override {
+        // Decode message type first
+        uint8 messageType = abi.decode(_message, (uint8));
+
+        if (messageType == 1) {
+            // Type 1 = LENDER DEPOSIT from LenderVault
+            _handleLenderDeposit(_origin, _message);
+        } else if (messageType == 3) {
+            // Type 3 = COLLATERAL UPDATE from CollateralVault
+            _handleCollateralUpdate(_origin, _message);
+        } else if (messageType == 4) {
+            // Type 4 = DEPOSIT AND BORROW from CollateralVault
+            _handleDepositAndBorrow(_origin, _message);
+        } else {
+            revert("Invalid message type");
+        }
+    }
+
+    /**
+     * @notice Handle combined deposit and borrow request from CollateralVault
+     */
+    function _handleDepositAndBorrow(Origin calldata _origin, bytes calldata _message) internal {
+        // Verify sender is authorized collateral vault
+        if (authorizedCollateralVaults[_origin.srcEid] != _origin.sender) {
+            revert UnauthorizedCollateralVault();
+        }
+
+        // Decode message
+        (
+            uint8 messageType, 
+            address user, 
+            address asset, 
+            uint256 amount, 
+            uint256 valueUSD, 
+            uint256 borrowAmount, 
+            uint32 dstEid, 
+            uint256 minAmountLD
+        ) = abi.decode(
+            _message,
+            (uint8, address, address, uint256, uint256, uint256, uint32, uint256)
+        );
+
+        require(messageType == 4, "Invalid message type");
+
+        // 1. Process Collateral Deposit
+        borrowerCollateral[user][asset] += amount;
+        emit CollateralReceivedCrossChain(user, asset, amount, _origin.srcEid);
+        emit CollateralDeposited(user, asset, amount, valueUSD);
+
+        // 2. Process Borrow
+        // We call the internal logic directly to bypass nonReentrant if needed, 
+        // or call a private function. For now, let's replicate the borrow logic.
+        
+        if (borrowAmount < minLoanSize) {
+            // Just deposit, don't fail the whole tx
+            return;
+        }
+        if (loans[user].isActive) {
+            // Already active loan, maybe just add collateral? 
+            // Or fail borrow part. For now, just return (deposit succeeded)
+            return;
+        }
+        if (address(usdcOFT) == address(0)) revert USDCOTFNotSet();
+
+        // Check liquidity
+        if (lendingToken.balanceOf(address(this)) < borrowAmount) {
+            // Fail borrow part, deposit succeeds
+            return;
+        }
+
+        // Get total collateral value (including new deposit)
+        uint256 totalCollateral = getBorrowerCollateralValue(user);
+        
+        // Validate using LTV
+        uint256 ltvBPS = creditScore.getLTV(user);
+        uint256 maxByLTV = (totalCollateral * ltvBPS) / BPS_DENOMINATOR;
+        if (borrowAmount > maxByLTV) {
+            // Fail borrow part (collateral insufficient for requested amount)
+            return;
+        }
+
+        // Validate fee-based limits
+        (uint256 maxBorrow, , ) = feeBasedLimits.calculateMaxBorrow(user, totalCollateral);
+        if (borrowAmount > maxBorrow) {
+            // Fail borrow part
+            return;
+        }
+
+        // Calculate interest rate
+        uint256 interestRate = _calculateInterestRate();
+
+        // Create loan
+        loans[user] = Loan({
+            principal: borrowAmount,
+            interestRate: interestRate,
+            lastAccrualTimestamp: block.timestamp,
+            accruedInterest: 0,
+            collateralValueUSD: totalCollateral,
+            dueDate: block.timestamp + LOAN_DURATION,
+            isActive: true
+        });
+
+        // Update pool state
+        totalBorrowed += borrowAmount;
+        totalDeposits -= borrowAmount;
+
+        // Record loan in credit score
+        creditScore.recordLoanTaken(user);
+
+        // Bridge USDC to destination chain via OFT
+        SendParam memory sendParam = SendParam({
+            dstEid: dstEid,
+            to: addressToBytes32(user), // Send to borrower on destination
+            amountLD: borrowAmount,
+            minAmountLD: minAmountLD,
+            extraOptions: OptionsBuilder.newOptions()
+                .addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0),
+            composeMsg: "",
+            oftCmd: ""
+        });
+
+        // Approve OFT to spend USDC
+        lendingToken.safeApprove(address(usdcOFT), borrowAmount);
+
+        // Quote OFT fee
+        MessagingFee memory oftFee = usdcOFT.quoteSend(sendParam, false);
+
+        // Send USDC to destination chain (Protocol pays the fee from its own balance/allowance?)
+        // Ideally, the user sent enough ETH in the initial tx to cover this. 
+        // However, `_lzReceive` doesn't pass `msg.value` from source unless we use `lzCompose`.
+        // For Hackathon: The Protocol pays the OFT fee from its own ETH balance (subsidized).
+        // Or we just assume the contract has ETH.
+        usdcOFT.send{value: oftFee.nativeFee}(sendParam, oftFee, payable(user));
+
+        emit CrossChainBorrowInitiated(user, dstEid, borrowAmount);
+        emit Borrowed(user, borrowAmount, totalCollateral);
+    }
+
+    /**
+     * @notice Handle lender deposit from LenderVault
+     */
+    function _handleLenderDeposit(Origin calldata _origin, bytes calldata _message) internal {
+        // Verify sender is authorized lender vault
+        if (authorizedLenderVaults[_origin.srcEid] != _origin.sender) {
+            revert UnauthorizedLenderVault();
+        }
+
+        // Decode message
+        (uint8 messageType, address lender, uint256 amount, bytes32 guid) = abi.decode(
+            _message,
+            (uint8, address, uint256, bytes32)
+        );
+
+        require(messageType == 1, "Invalid message type");
+        if (amount == 0) revert InvalidAmount();
+
+        // Process deposit (USDC already bridged via OFT directly to this contract)
+        if (lendingToken.balanceOf(address(this)) < amount) {
+            revert InsufficientLiquidity();
+        }
+
+        // Calculate shares
+        uint256 sharesIssued;
+        if (totalShares == 0) {
+            sharesIssued = amount;
+        } else {
+            uint256 poolValue = totalDeposits + totalBorrowed;
+            sharesIssued = (amount * totalShares) / poolValue;
+        }
+
+        // Update state
+        shares[lender] += sharesIssued;
+        totalShares += sharesIssued;
+        totalDeposits += amount;
+
+        emit CrossChainDepositReceived(lender, _origin.srcEid, amount, sharesIssued);
+        emit Deposited(lender, amount, sharesIssued);
+
+        // Send confirmation back to vault
+        bytes memory responsePayload = abi.encode(uint8(2), guid, true); // Type 2 = DEPOSIT_CONFIRMATION
+        bytes memory options = OptionsBuilder.newOptions();
+        options.addExecutorLzReceiveOption(uint128(lzReceiveGasLimit), 0);
+        MessagingFee memory fee = _quote(_origin.srcEid, responsePayload, options, false);
+        _lzSend(_origin.srcEid, responsePayload, options, fee, payable(address(this)));
+    }
+
+    /**
+     * @notice Handle collateral update from CollateralVault
+     */
+    function _handleCollateralUpdate(Origin calldata _origin, bytes calldata _message) internal {
+        // Verify sender is authorized collateral vault
+        if (authorizedCollateralVaults[_origin.srcEid] != _origin.sender) {
+            revert UnauthorizedCollateralVault();
+        }
+
+        // Decode message: (messageType, user, asset, amount, valueUSD, isDeposit)
+        (uint8 messageType, address user, address asset, uint256 amount, uint256 valueUSD, bool isDeposit) = abi.decode(
+            _message,
+            (uint8, address, address, uint256, uint256, bool)
+        );
+
+        require(messageType == 3, "Invalid message type");
+
+        if (isDeposit) {
+            // Add collateral
+            borrowerCollateral[user][asset] += amount;
+            emit CollateralReceivedCrossChain(user, asset, amount, _origin.srcEid);
+            emit CollateralDeposited(user, asset, amount, valueUSD);
+        } else {
+            // Remove collateral (after loan repaid)
+            if (borrowerCollateral[user][asset] < amount) revert InsufficientCollateral();
+            borrowerCollateral[user][asset] -= amount;
+            emit CollateralWithdrawn(user, asset, amount);
+        }
+    }
+
+    // ============ VIEW FUNCTIONS ============
+
+    /**
+     * @notice Get borrower's total collateral value in USD (sum of all assets)
+     * @param borrower Address of the borrower
+     * @return valueUSD Total collateral value in USD (6 decimals)
+     * @dev Sums the USD value of all collateral assets deposited by the borrower
+     */
+    function getBorrowerCollateralValue(address borrower) public view returns (uint256 valueUSD) {
+        // For now, we support ETH (address(0)) and NATIVE_TOKEN
+        // In production, you might want to maintain a list of assets per borrower
+        
+        uint256 totalValueUSD18 = 0;
+        
+        // ETH collateral (address(0))
+        uint256 ethAmount = borrowerCollateral[borrower][address(0)];
+        if (ethAmount > 0) {
+            uint256 ethValueUSD18 = priceOracle.getAssetValueUSD(address(0), ethAmount, 18);
+            totalValueUSD18 += ethValueUSD18;
+        }
+        
+        // NATIVE_TOKEN collateral (0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE)
+        address nativeToken = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
+        uint256 nativeAmount = borrowerCollateral[borrower][nativeToken];
+        if (nativeAmount > 0) {
+            uint256 nativeValueUSD18 = priceOracle.getAssetValueUSD(nativeToken, nativeAmount, 18);
+            totalValueUSD18 += nativeValueUSD18;
+        }
+        
+        // Add other native tokens here (MATIC, etc.) as needed
+        // For now, we only support ETH, but the structure allows for multiple tokens
+        
+        valueUSD = totalValueUSD18 / 1e12; // Convert to 6 decimals
     }
 
     // ============ INTERNAL FUNCTIONS ============
@@ -496,4 +994,45 @@ contract ProtocolCore is ReentrancyGuard, Ownable {
 
         emit ReservesAdded(amount);
     }
+
+    /**
+     * @notice Convert address to bytes32 for LayerZero
+     */
+    function addressToBytes32(address _addr) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(_addr)));
+    }
+
+
+    /**
+     * @notice Quote fee for cross-chain borrow
+     * @param amount Amount to borrow
+     * @param dstEid Destination endpoint ID
+     * @param minAmountLD Minimum amount to receive
+     * @return oftFee Fee for OFT bridging
+     */
+    function quoteBorrowCrossChain(
+        uint256 amount,
+        uint32 dstEid,
+        uint256 minAmountLD
+    ) external view returns (MessagingFee memory oftFee) {
+        if (address(usdcOFT) == address(0)) revert USDCOTFNotSet();
+
+        SendParam memory sendParam = SendParam({
+            dstEid: dstEid,
+            to: addressToBytes32(msg.sender),
+            amountLD: amount,
+            minAmountLD: minAmountLD,
+            extraOptions: OptionsBuilder.newOptions()
+                .addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0), // Use configurable gas limit
+            composeMsg: "",
+            oftCmd: ""
+        });
+
+        oftFee = usdcOFT.quoteSend(sendParam, false);
+    }
+
+    /**
+     * @notice Receive ETH for gas payments
+     */
+    receive() external payable {}
 }

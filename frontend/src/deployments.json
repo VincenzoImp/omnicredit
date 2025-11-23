@@ -1,0 +1,25 @@
+{
+  "arbitrumSepolia": {
+    "protocolCore": "0xD0A7e8F3E39Da4310ace992C2c331E4F5D0dA6eD",
+    "mockUSDC": "0x1bE5aa20A6Ea7668167dbB68D88242d0aaBe3f5D",
+    "mockOFT": "0xE101608B02b8f5235ad5c44B413D4E531eeCa5Eb",
+    "creditScore": "0x513fD21094e3F6E6f9081F4A95c1d1212020349F",
+    "feeBasedLimits": "0x858611DdC63aD6D285518Ee90AF0768377Fe17CE",
+    "priceOracle": "0x5a50a56238880D020e9F36e197B3bf9c854c2dfF",
+    "liquidationManager": "0x3d6547523EddAdCB4b85Dd074cdE6d2bB680533A"
+  },
+  "baseSepolia": {
+    "mockOFT": "0xf74F4460D752e7540de42bA80087EA50AE703437",
+    "collateralVault": "0xcC787E14ec9bc3e862fd63e12BBB21908285aD72",
+    "mockUSDC": "0x1B3B6ad9F9E65C01B85D96bB4ae425Fe6ec4D556",
+    "lenderVault": "0x2cb8f1E783da33E26Ebe293fa9D45ba06E1FFc8b"
+  },
+  "optimismSepolia": {
+    "mockOFT": "0x53bE5f2e8d6D08354214a8F45ac52967aBC55D4F",
+    "collateralVault": "0x24488D1AEea4Ed98F2cbE7e576699959DDF30fd6",
+    "mockUSDC": "0x45Ca941D17aB800Ca02A83E3dA29871d8F878599",
+    "lenderVault": "0x35AdAc602fDA4e16F3899a1bC266602bc9659bfA"
+  }
+}
+
+

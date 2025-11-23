@@ -1,0 +1,17 @@
+{
+  "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+  "privateKey": "0xYOUR_PRIVATE_KEY",
+  "priceOracleAddress": "0xPriceOracle",
+  "protocolCoreAddress": "0xProtocolCore",
+  "liquidationManagerAddress": "0xLiquidationManager",
+  "hermesUrl": "https://hermes.pyth.network/v2/updates/price/latest",
+  "priceFeedIds": [
+    "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
+  ],
+  "borrowerScanLookbackBlocks": 50_000,
+  "healthFactorThresholdBps": 10000,
+  "pollIntervalMs": 60_000,
+  "autoExecuteLiquidation": false
+}
+
+

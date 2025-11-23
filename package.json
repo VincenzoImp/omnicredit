@@ -9,9 +9,18 @@
     "test": "hardhat test",
     "test:solidity": "hardhat test solidity",
     "test:coverage": "hardhat test --coverage",
-    "deploy": "hardhat ignition deploy",
-    "deploy:base-protocol": "tsx scripts/deploy-base-protocol.ts",
-    "deploy:cross-chain": "tsx scripts/deploy-cross-chain.ts",
+    "deploy": "hardhat run scripts/deploy.ts --network arbitrumSepolia",
+    "deploy:arbitrum": "hardhat ignition deploy ignition/modules/ArbitrumSepolia.ts --network arbitrumSepolia --parameters ignition/parameters/arbitrumSepolia.json",
+    "deploy:baseSepolia": "tsx scripts/deploy-satellite.ts --chain baseSepolia",
+    "deploy:optimism": "tsx scripts/deploy-satellite.ts --chain optimismSepolia",
+    "configure:peers": "hardhat run scripts/configure-peers.ts",
+    "configure:peers:arbitrum": "hardhat run scripts/configure-peers.ts --network arbitrumSepolia",
+    "configure:peers:baseSepolia": "hardhat run scripts/configure-peers.ts --network baseSepolia",
+    "configure:peers:optimism": "hardhat run scripts/configure-peers.ts --network optimismSepolia",
+    "monitor:liquidations": "tsx monitor/src/liquidation-monitor.ts",
+    "test:protocol": "tsx scripts/test-protocol.ts",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
     "clean": "hardhat clean"
   },
   "keywords": [
@@ -27,6 +36,7 @@
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.3",
+    "ethers": "^6.15.0",
     "hardhat": "^3.0.15",
     "tsx": "^4.20.6"
   },

@@ -1,13 +1,14 @@
-import dotenv from 'dotenv';
-import hardhatIgnition from '@nomicfoundation/hardhat-ignition';
-import hardhatVerify from '@nomicfoundation/hardhat-verify';
-import hardhatEthers from '@nomicfoundation/hardhat-ethers';
+import dotenv from "dotenv";
+import { defineConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-ignition";
+import "@nomicfoundation/hardhat-verify";
+import "@nomicfoundation/hardhat-ethers";
+
+console.log("Hardhat config loading...");
 
 dotenv.config();
 
-/** @type {import('hardhat/types').HardhatUserConfig} */
-const config = {
-  plugins: [hardhatIgnition, hardhatVerify, hardhatEthers],
+export default defineConfig({
   solidity: {
     version: "0.8.28",
     settings: {
@@ -15,6 +16,7 @@ const config = {
         enabled: true,
         runs: 200,
       },
+      viaIR: true,
       evmVersion: "shanghai",
     },
   },
@@ -24,26 +26,23 @@ const config = {
       type: "edr-simulated",
       chainId: 31337,
     },
-
     arbitrumSepolia: {
       type: "http",
       url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 421614,
     },
-
     baseSepolia: {
       type: "http",
       url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 84532,
     },
-
-    sepolia: {
+    optimismSepolia: {
       type: "http",
-      url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
+      url: process.env.OPTIMISM_SEPOLIA_RPC_URL || "https://sepolia.optimism.io",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 11155111,
+      chainId: 11155420,
     },
   },
 
@@ -53,10 +52,4 @@ const config = {
     cache: "./cache",
     artifacts: "./artifacts",
   },
-
-  // Exclude LiquidationHook from compilation if it causes issues
-  // It can be compiled separately with Foundry which handles @uniswap imports better
-  // To compile it: forge build --contracts contracts/hooks/LiquidationHook.sol
-};
-
-export default config;
+});
