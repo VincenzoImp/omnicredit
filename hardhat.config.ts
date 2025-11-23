@@ -31,14 +31,6 @@ const config = {
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 421614,
     },
-
-    baseSepolia: {
-      type: "http",
-      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 84532,
-    },
-
     sepolia: {
       type: "http",
       url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
@@ -53,10 +45,6 @@ const config = {
     cache: "./cache",
     artifacts: "./artifacts",
   },
-
-  // Exclude LiquidationHook from compilation if it causes issues
-  // It can be compiled separately with Foundry which handles @uniswap imports better
-  // To compile it: forge build --contracts contracts/hooks/LiquidationHook.sol
 };
 
 export default config;
