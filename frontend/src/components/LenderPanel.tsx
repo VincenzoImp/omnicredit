@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId, useReadContract } from 'wagmi';
+import { 
+  useAccount, 
+  useWriteContract, 
+  useWaitForTransactionReceipt, 
+  useChainId, 
+  useReadContract,
+  useSwitchChain 
+} from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { getAddress } from '../deployments';
 import { arbitrumSepolia } from 'wagmi/chains';
@@ -45,15 +52,23 @@ const PROTOCOL_CORE_ABI = [
 export default function LenderPanel() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const { switchChain } = useSwitchChain();
   const [amount, setAmount] = useState('');
   
-  const { writeContract: mint, data: mintHash, isPending: isMintPending } = useWriteContract();
-  const { writeContract: approve, data: approveHash, isPending: isApprovePending } = useWriteContract();
-  const { writeContract: deposit, data: depositHash, isPending: isDepositPending } = useWriteContract();
+  const { 
+    writeContractAsync,
+    data: txHash,
+    isPending: isWritePending,
+    error: writeError 
+  } = useWriteContract();
   
-  const { isLoading: isMinting, isSuccess: isMintSuccess } = useWaitForTransactionReceipt({ hash: mintHash });
-  const { isLoading: isApproving, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({ hash: approveHash });
-  const { isLoading: isDepositing, isSuccess: isDepositSuccess } = useWaitForTransactionReceipt({ hash: depositHash });
+  const { 
+    isLoading: isTxLoading, 
+    isSuccess: isTxSuccess,
+    error: txError 
+  } = useWaitForTransactionReceipt({ 
+    hash: txHash,
+  });
 
   const isOnArbitrum = chainId === arbitrumSepolia.id;
 
@@ -64,98 +79,103 @@ export default function LenderPanel() {
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
     chainId: arbitrumSepolia.id,
+    query: {
+      enabled: isOnArbitrum && !!address,
+    },
   });
 
-  // Handle transaction success notifications
+  // Handle transaction success
   useEffect(() => {
-    if (isMintSuccess) {
-      toast.success('✅ MockUSDC minted successfully!');
+    if (isTxSuccess && txHash) {
+      toast.success('✅ Transaction successful!');
       refetchBalance();
       setAmount('');
     }
-  }, [isMintSuccess, refetchBalance]);
+  }, [isTxSuccess, txHash, refetchBalance]);
 
+  // Handle errors
   useEffect(() => {
-    if (isApproveSuccess) {
-      toast.success('✅ USDC approved successfully!');
+    if (writeError) {
+      console.error('Write error:', writeError);
+      toast.error(`Transaction failed: ${writeError.message}`);
     }
-  }, [isApproveSuccess]);
-
-  useEffect(() => {
-    if (isDepositSuccess) {
-      toast.success('✅ Deposit successful! You are now earning yield.');
-      refetchBalance();
-      setAmount('');
+    if (txError) {
+      console.error('TX error:', txError);
+      toast.error(`Transaction failed: ${txError.message}`);
     }
-  }, [isDepositSuccess, refetchBalance]);
+  }, [writeError, txError]);
 
   const handleMint = async () => {
-    if (!amount || !isOnArbitrum) return;
+    if (!amount || !isOnArbitrum || !address) return;
     
     try {
       const amountBN = parseUnits(amount, 6);
-      toast.loading('Minting MockUSDC...', { id: 'mint' });
+      const toastId = toast.loading('Minting MockUSDC...');
       
-      mint({
+      const hash = await writeContractAsync({
         address: getAddress('arbitrumSepolia', 'mockUSDC'),
         abi: MOCKUSDC_ABI,
         functionName: 'mint',
         args: [amountBN],
         chainId: arbitrumSepolia.id,
-        gas: 200000n,
       });
       
-      toast.dismiss('mint');
+      toast.dismiss(toastId);
+      toast.loading('Waiting for confirmation...', { id: hash });
     } catch (error: any) {
       console.error('Mint error:', error);
-      toast.error(`Mint failed: ${error.message || 'Unknown error'}`, { id: 'mint' });
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
   };
 
   const handleApprove = async () => {
-    if (!amount || !isOnArbitrum) return;
+    if (!amount || !isOnArbitrum || !address) return;
     
     try {
       const amountBN = parseUnits(amount, 6);
-      toast.loading('Approving USDC...', { id: 'approve' });
+      const toastId = toast.loading('Approving USDC...');
       
-      approve({
+      const hash = await writeContractAsync({
         address: getAddress('arbitrumSepolia', 'mockUSDC'),
         abi: MOCKUSDC_ABI,
         functionName: 'approve',
         args: [getAddress('arbitrumSepolia', 'protocolCore'), amountBN],
         chainId: arbitrumSepolia.id,
-        gas: 100000n,
       });
       
-      toast.dismiss('approve');
+      toast.dismiss(toastId);
+      toast.loading('Waiting for confirmation...', { id: hash });
     } catch (error: any) {
       console.error('Approve error:', error);
-      toast.error(`Approve failed: ${error.message || 'Unknown error'}`, { id: 'approve' });
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
   };
 
   const handleDeposit = async () => {
-    if (!amount || !isOnArbitrum) return;
+    if (!amount || !isOnArbitrum || !address) return;
     
     try {
       const amountBN = parseUnits(amount, 6);
-      toast.loading('Depositing USDC...', { id: 'deposit' });
+      const toastId = toast.loading('Depositing USDC...');
       
-      deposit({
+      const hash = await writeContractAsync({
         address: getAddress('arbitrumSepolia', 'protocolCore'),
         abi: PROTOCOL_CORE_ABI,
         functionName: 'deposit',
         args: [amountBN],
         chainId: arbitrumSepolia.id,
-        gas: 300000n,
       });
       
-      toast.dismiss('deposit');
+      toast.dismiss(toastId);
+      toast.loading('Waiting for confirmation...', { id: hash });
     } catch (error: any) {
       console.error('Deposit error:', error);
-      toast.error(`Deposit failed: ${error.message || 'Unknown error'}`, { id: 'deposit' });
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
+  };
+
+  const handleSwitchChain = () => {
+    switchChain({ chainId: arbitrumSepolia.id });
   };
 
   if (!isConnected) {
@@ -163,21 +183,25 @@ export default function LenderPanel() {
   }
 
   const formattedBalance = usdcBalance ? formatUnits(usdcBalance, 6) : '0';
-  const isProcessing = isMintPending || isMinting || isApprovePending || isApproving || isDepositPending || isDepositing;
+  const isProcessing = isWritePending || isTxLoading;
 
   return (
     <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-xl">
       <h2 className="text-3xl font-bold text-white mb-6">💰 Lender Actions</h2>
       
-      {!isOnArbitrum && (
-        <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-3 mb-4">
-          <p className="text-yellow-200 text-xs">
+      {!isOnArbitrum ? (
+        <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-4 mb-4">
+          <p className="text-yellow-200 text-sm mb-3">
             ⚠️ Please switch to Arbitrum Sepolia to use lender features
           </p>
+          <button
+            onClick={handleSwitchChain}
+            className="w-full px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-semibold transition-colors"
+          >
+            Switch to Arbitrum Sepolia
+          </button>
         </div>
-      )}
-
-      {isOnArbitrum && (
+      ) : (
         <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-3 mb-4">
           <p className="text-blue-200 text-sm">
             💵 Your Balance: <span className="font-bold">{parseFloat(formattedBalance).toFixed(2)} USDC</span>
@@ -193,7 +217,7 @@ export default function LenderPanel() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="100.00"
-            disabled={isProcessing}
+            disabled={isProcessing || !isOnArbitrum}
             className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
           />
         </div>
@@ -201,26 +225,26 @@ export default function LenderPanel() {
         <div className="grid grid-cols-3 gap-3">
           <button
             onClick={handleMint}
-            disabled={isMintPending || isMinting || !amount || !isOnArbitrum || isProcessing}
+            disabled={isProcessing || !amount || !isOnArbitrum}
             className="px-4 py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
           >
-            {isMintPending || isMinting ? 'Minting...' : 'Mint'}
+            {isProcessing ? '⏳' : 'Mint'}
           </button>
           
           <button
             onClick={handleApprove}
-            disabled={isApprovePending || isApproving || !amount || !isOnArbitrum || isProcessing}
+            disabled={isProcessing || !amount || !isOnArbitrum}
             className="px-4 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
           >
-            {isApprovePending || isApproving ? 'Approving...' : 'Approve'}
+            {isProcessing ? '⏳' : 'Approve'}
           </button>
           
           <button
             onClick={handleDeposit}
-            disabled={isDepositPending || isDepositing || !amount || !isOnArbitrum || isProcessing}
+            disabled={isProcessing || !amount || !isOnArbitrum}
             className="px-4 py-3 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
           >
-            {isDepositPending || isDepositing ? 'Depositing...' : 'Deposit'}
+            {isProcessing ? '⏳' : 'Deposit'}
           </button>
         </div>
 

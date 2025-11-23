@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId, useBalance } from 'wagmi';
+import { 
+  useAccount, 
+  useWriteContract, 
+  useWaitForTransactionReceipt, 
+  useChainId, 
+  useBalance,
+  useSwitchChain 
+} from 'wagmi';
 import { parseEther, parseUnits, formatEther } from 'viem';
 import { getAddress } from '../deployments';
 import { baseSepolia, arbitrumSepolia } from 'wagmi/chains';
@@ -39,17 +46,25 @@ const PROTOCOL_CORE_ABI = [
 export default function BorrowerPanel() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const { switchChain } = useSwitchChain();
   const [collateralAmount, setCollateralAmount] = useState('');
   const [borrowAmount, setBorrowAmount] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
   
-  const { writeContract: depositCollateral, data: collateralHash, isPending: isCollateralPending } = useWriteContract();
-  const { writeContract: borrow, data: borrowHash, isPending: isBorrowPending } = useWriteContract();
-  const { writeContract: repay, data: repayHash, isPending: isRepayPending } = useWriteContract();
+  const { 
+    writeContractAsync,
+    data: txHash,
+    isPending: isWritePending,
+    error: writeError 
+  } = useWriteContract();
   
-  const { isLoading: isDepositingCollateral, isSuccess: isCollateralSuccess } = useWaitForTransactionReceipt({ hash: collateralHash });
-  const { isLoading: isBorrowing, isSuccess: isBorrowSuccess } = useWaitForTransactionReceipt({ hash: borrowHash });
-  const { isLoading: isRepaying, isSuccess: isRepaySuccess } = useWaitForTransactionReceipt({ hash: repayHash });
+  const { 
+    isLoading: isTxLoading, 
+    isSuccess: isTxSuccess,
+    error: txError 
+  } = useWaitForTransactionReceipt({ 
+    hash: txHash,
+  });
 
   const isOnBase = chainId === baseSepolia.id;
   const isOnArbitrum = chainId === arbitrumSepolia.id;
@@ -60,31 +75,31 @@ export default function BorrowerPanel() {
     chainId: baseSepolia.id,
   });
 
-  // Handle transaction success notifications
+  // Handle transaction success
   useEffect(() => {
-    if (isCollateralSuccess) {
-      toast.success('✅ Collateral deposited! Cross-chain message sent to Arbitrum.');
+    if (isTxSuccess && txHash) {
+      toast.success('✅ Transaction successful!');
       refetchBaseBalance();
       setCollateralAmount('');
-    }
-  }, [isCollateralSuccess, refetchBaseBalance]);
-
-  useEffect(() => {
-    if (isBorrowSuccess) {
-      toast.success('✅ Borrow initiated! USDC will arrive on Optimism in 1-2 minutes.');
       setBorrowAmount('');
-    }
-  }, [isBorrowSuccess]);
-
-  useEffect(() => {
-    if (isRepaySuccess) {
-      toast.success('✅ Loan repaid successfully!');
       setRepayAmount('');
     }
-  }, [isRepaySuccess]);
+  }, [isTxSuccess, txHash, refetchBaseBalance]);
+
+  // Handle errors
+  useEffect(() => {
+    if (writeError) {
+      console.error('Write error:', writeError);
+      toast.error(`Transaction failed: ${writeError.shortMessage || writeError.message}`);
+    }
+    if (txError) {
+      console.error('TX error:', txError);
+      toast.error(`Transaction failed: ${txError.message}`);
+    }
+  }, [writeError, txError]);
 
   const handleDepositCollateral = async () => {
-    if (!collateralAmount || !isOnBase) return;
+    if (!collateralAmount || !isOnBase || !address) return;
     
     try {
       const collateralValue = parseEther(collateralAmount);
@@ -97,69 +112,69 @@ export default function BorrowerPanel() {
         return;
       }
       
-      toast.loading('Depositing collateral...', { id: 'collateral' });
+      const toastId = toast.loading('Depositing collateral...');
       
-      depositCollateral({
+      const hash = await writeContractAsync({
         address: getAddress('baseSepolia', 'collateralVault'),
         abi: COLLATERAL_VAULT_ABI,
         functionName: 'depositNative',
         value: totalValue,
         chainId: baseSepolia.id,
-        gas: 500000n,
       });
       
-      toast.dismiss('collateral');
+      toast.dismiss(toastId);
+      toast.loading('Waiting for confirmation...', { id: hash });
     } catch (error: any) {
       console.error('Deposit collateral error:', error);
-      toast.error(`Deposit failed: ${error.shortMessage || error.message || 'Unknown error'}`, { id: 'collateral' });
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
   };
 
   const handleBorrow = async () => {
-    if (!borrowAmount || !isOnArbitrum) return;
+    if (!borrowAmount || !isOnArbitrum || !address) return;
     
     try {
       const amountBN = parseUnits(borrowAmount, 6);
-      toast.loading('Initiating cross-chain borrow...', { id: 'borrow' });
+      const toastId = toast.loading('Initiating cross-chain borrow...');
       
       // Optimism Sepolia EID = 40232
-      borrow({
+      const hash = await writeContractAsync({
         address: getAddress('arbitrumSepolia', 'protocolCore'),
         abi: PROTOCOL_CORE_ABI,
         functionName: 'borrowCrossChain',
         args: [amountBN, 40232, amountBN],
-        value: parseEther('0.02'), // Increased LayerZero fee for OFT transfer
+        value: parseEther('0.02'), // LayerZero fee for OFT transfer
         chainId: arbitrumSepolia.id,
-        gas: 1000000n,
       });
       
-      toast.dismiss('borrow');
+      toast.dismiss(toastId);
+      toast.loading('Waiting for confirmation...', { id: hash });
     } catch (error: any) {
       console.error('Borrow error:', error);
-      toast.error(`Borrow failed: ${error.shortMessage || error.message || 'Unknown error'}`, { id: 'borrow' });
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
   };
 
   const handleRepay = async () => {
-    if (!repayAmount || !isOnArbitrum) return;
+    if (!repayAmount || !isOnArbitrum || !address) return;
     
     try {
       const amountBN = parseUnits(repayAmount, 6);
-      toast.loading('Repaying loan...', { id: 'repay' });
+      const toastId = toast.loading('Repaying loan...');
       
-      repay({
+      const hash = await writeContractAsync({
         address: getAddress('arbitrumSepolia', 'protocolCore'),
         abi: PROTOCOL_CORE_ABI,
         functionName: 'repay',
         args: [amountBN],
         chainId: arbitrumSepolia.id,
-        gas: 300000n,
       });
       
-      toast.dismiss('repay');
+      toast.dismiss(toastId);
+      toast.loading('Waiting for confirmation...', { id: hash });
     } catch (error: any) {
       console.error('Repay error:', error);
-      toast.error(`Repay failed: ${error.shortMessage || error.message || 'Unknown error'}`, { id: 'repay' });
+      toast.error(error.shortMessage || error.message || 'Transaction failed');
     }
   };
 
@@ -168,7 +183,7 @@ export default function BorrowerPanel() {
   }
 
   const formattedBaseBalance = baseBalance ? formatEther(baseBalance.value) : '0';
-  const isProcessing = isCollateralPending || isDepositingCollateral || isBorrowPending || isBorrowing || isRepayPending || isRepaying;
+  const isProcessing = isWritePending || isTxLoading;
 
   return (
     <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 shadow-xl">
@@ -192,23 +207,31 @@ export default function BorrowerPanel() {
         {/* Deposit Collateral */}
         <div>
           <label className="block text-white/80 text-sm mb-2">
-            1️⃣ Collateral (ETH on Base) {!isOnBase && <span className="text-yellow-400">⚠️ Switch to Base</span>}
+            1️⃣ Collateral (ETH on Base)
           </label>
+          {!isOnBase && (
+            <button
+              onClick={() => switchChain({ chainId: baseSepolia.id })}
+              className="w-full mb-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-semibold transition-colors text-sm"
+            >
+              Switch to Base Sepolia
+            </button>
+          )}
           <div className="flex gap-2">
             <input
               type="number"
               value={collateralAmount}
               onChange={(e) => setCollateralAmount(e.target.value)}
               placeholder="0.001"
-              disabled={isProcessing}
+              disabled={isProcessing || !isOnBase}
               className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
             />
             <button
               onClick={handleDepositCollateral}
-              disabled={isCollateralPending || isDepositingCollateral || !collateralAmount || !isOnBase || isProcessing}
+              disabled={isProcessing || !collateralAmount || !isOnBase}
               className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
             >
-              {isCollateralPending || isDepositingCollateral ? 'Depositing...' : 'Deposit'}
+              {isProcessing ? '⏳' : 'Deposit'}
             </button>
           </div>
           <p className="text-white/50 text-xs mt-1">Includes ~0.01 ETH LayerZero fee</p>
@@ -217,23 +240,31 @@ export default function BorrowerPanel() {
         {/* Borrow */}
         <div>
           <label className="block text-white/80 text-sm mb-2">
-            2️⃣ Borrow (USDC to Optimism) {!isOnArbitrum && <span className="text-yellow-400">⚠️ Switch to Arbitrum</span>}
+            2️⃣ Borrow (USDC to Optimism)
           </label>
+          {!isOnArbitrum && (
+            <button
+              onClick={() => switchChain({ chainId: arbitrumSepolia.id })}
+              className="w-full mb-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-semibold transition-colors text-sm"
+            >
+              Switch to Arbitrum Sepolia
+            </button>
+          )}
           <div className="flex gap-2">
             <input
               type="number"
               value={borrowAmount}
               onChange={(e) => setBorrowAmount(e.target.value)}
               placeholder="10.00"
-              disabled={isProcessing}
+              disabled={isProcessing || !isOnArbitrum}
               className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
             />
             <button
               onClick={handleBorrow}
-              disabled={isBorrowPending || isBorrowing || !borrowAmount || !isOnArbitrum || isProcessing}
+              disabled={isProcessing || !borrowAmount || !isOnArbitrum}
               className="px-6 py-3 bg-red-500 hover:bg-red-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
             >
-              {isBorrowPending || isBorrowing ? 'Borrowing...' : 'Borrow'}
+              {isProcessing ? '⏳' : 'Borrow'}
             </button>
           </div>
           <p className="text-white/50 text-xs mt-1">Requires 0.02 ETH for LayerZero + OFT fees</p>
@@ -242,23 +273,31 @@ export default function BorrowerPanel() {
         {/* Repay */}
         <div>
           <label className="block text-white/80 text-sm mb-2">
-            3️⃣ Repay (USDC on Arbitrum) {!isOnArbitrum && <span className="text-yellow-400">⚠️ Switch to Arbitrum</span>}
+            3️⃣ Repay (USDC on Arbitrum)
           </label>
+          {!isOnArbitrum && (
+            <button
+              onClick={() => switchChain({ chainId: arbitrumSepolia.id })}
+              className="w-full mb-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-semibold transition-colors text-sm"
+            >
+              Switch to Arbitrum Sepolia
+            </button>
+          )}
           <div className="flex gap-2">
             <input
               type="number"
               value={repayAmount}
               onChange={(e) => setRepayAmount(e.target.value)}
               placeholder="10.00"
-              disabled={isProcessing}
+              disabled={isProcessing || !isOnArbitrum}
               className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
             />
             <button
               onClick={handleRepay}
-              disabled={isRepayPending || isRepaying || !repayAmount || !isOnArbitrum || isProcessing}
+              disabled={isProcessing || !repayAmount || !isOnArbitrum}
               className="px-6 py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
             >
-              {isRepayPending || isRepaying ? 'Repaying...' : 'Repay'}
+              {isProcessing ? '⏳' : 'Repay'}
             </button>
           </div>
           <p className="text-white/50 text-xs mt-1">Approve USDC first in Lender panel</p>
