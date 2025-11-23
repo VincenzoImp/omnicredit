@@ -3,6 +3,7 @@ import { arbitrumSepolia, baseSepolia, optimismSepolia } from 'wagmi/chains';
 import { getAddress } from '../deployments';
 import { formatEther, formatUnits } from 'viem';
 import BalanceCard from './BalanceCard';
+import { useEffect } from 'react';
 
 const MOCKUSDC_ABI = [
   {
@@ -25,12 +26,12 @@ export default function MultiChainBalances() {
   const { address, isConnected } = useAccount();
 
   // Arbitrum Sepolia balances
-  const { data: arbEthBalance } = useBalance({
+  const { data: arbEthBalance, refetch: refetchArbEth } = useBalance({
     address,
     chainId: arbitrumSepolia.id,
   });
 
-  const { data: arbUsdcBalance } = useReadContract({
+  const { data: arbUsdcBalance, refetch: refetchArbUsdc } = useReadContract({
     address: getAddress('arbitrumSepolia', 'mockUSDC'),
     abi: MOCKUSDC_ABI,
     functionName: 'balanceOf',
@@ -39,12 +40,12 @@ export default function MultiChainBalances() {
   });
 
   // Base Sepolia balances
-  const { data: baseEthBalance } = useBalance({
+  const { data: baseEthBalance, refetch: refetchBaseEth } = useBalance({
     address,
     chainId: baseSepolia.id,
   });
 
-  const { data: baseUsdcBalance } = useReadContract({
+  const { data: baseUsdcBalance, refetch: refetchBaseUsdc } = useReadContract({
     address: getAddress('baseSepolia', 'mockUSDC'),
     abi: MOCKUSDC_ABI,
     functionName: 'balanceOf',
@@ -53,18 +54,34 @@ export default function MultiChainBalances() {
   });
 
   // Optimism Sepolia balances
-  const { data: opEthBalance } = useBalance({
+  const { data: opEthBalance, refetch: refetchOpEth } = useBalance({
     address,
     chainId: optimismSepolia.id,
   });
 
-  const { data: opUsdcBalance } = useReadContract({
+  const { data: opUsdcBalance, refetch: refetchOpUsdc } = useReadContract({
     address: getAddress('optimismSepolia', 'mockUSDC'),
     abi: MOCKUSDC_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
     chainId: optimismSepolia.id,
   });
+
+  // Auto-refresh balances every 10 seconds
+  useEffect(() => {
+    if (!isConnected) return;
+    
+    const interval = setInterval(() => {
+      refetchArbEth();
+      refetchArbUsdc();
+      refetchBaseEth();
+      refetchBaseUsdc();
+      refetchOpEth();
+      refetchOpUsdc();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isConnected, refetchArbEth, refetchArbUsdc, refetchBaseEth, refetchBaseUsdc, refetchOpEth, refetchOpUsdc]);
 
   if (!isConnected) {
     return (
