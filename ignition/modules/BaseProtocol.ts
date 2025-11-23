@@ -62,8 +62,8 @@ type DeploymentResult = {
  * @example
  * ```bash
  * npx hardhat ignition deploy ignition/modules/BaseProtocol.ts \
- *   --network baseSepolia \
- *   --parameters ignition/parameters/baseSepolia.json \
+ *   --network arbitrumSepolia \
+ *   --parameters ignition/parameters/arbitrumSepolia.json \
  *   --reset
  * ```
  */
@@ -195,7 +195,7 @@ const BaseProtocolModule = buildModule("BaseProtocol", (m) => {
     // No hook address provided - this is expected during initial deployment
     console.log("   ⚠️  LiquidationHook address not provided in parameters");
     console.log("   📋 Hook will be deployed separately after BaseProtocol");
-    console.log("   📋 After hook deployment, add 'liquidationHook' to ignition/parameters/baseSepolia.json");
+    console.log(`   📋 After hook deployment, add 'liquidationHook' to ignition/parameters/${process.env.NETWORK || 'arbitrumSepolia'}.json`);
   }
 
   // ============================================================================

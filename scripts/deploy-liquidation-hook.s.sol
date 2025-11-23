@@ -53,7 +53,7 @@ contract DeployLiquidationHook is Script {
 
         console.log("LiquidationHook deployed at:", address(hook));
         console.log("\nDeployment successful!");
-        console.log("Update ignition/parameters/baseSepolia.json with:");
+        console.log("Update ignition/parameters/arbitrumSepolia.json with:");
         console.log("  \"liquidationHook\": \"", address(hook), "\"");
 
         return address(hook);

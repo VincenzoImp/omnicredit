@@ -25,6 +25,13 @@ const config = {
       chainId: 31337,
     },
 
+    arbitrumSepolia: {
+      type: "http",
+      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: 421614,
+    },
+
     baseSepolia: {
       type: "http",
       url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",

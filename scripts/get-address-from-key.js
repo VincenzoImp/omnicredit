@@ -20,7 +20,7 @@ try {
   console.log("\n📋 Your Deployer Address:");
   console.log(`   ${wallet.address}\n`);
   console.log("💡 Copy this address and replace the zero addresses in:");
-  console.log("   - ignition/parameters/baseSepolia.json (for lzDelegate and feeCollector)");
+  console.log("   - ignition/parameters/arbitrumSepolia.json (for lzDelegate and feeCollector)");
   console.log("   - ignition/parameters/sepolia.json (for lzDelegate)\n");
 } catch (error) {
   console.error("❌ Error:", error.message);

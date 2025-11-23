@@ -11,7 +11,7 @@ These parameter files are used with Hardhat Ignition to deploy contracts.
 1. Get your deployer address:
    ```bash
    # Check your account address
-   npx hardhat run -e "import('hardhat').then(async h => { const hre = h.default || h; const conn = await hre.network.connect(); const [signer] = await conn.ethers.getSigners(); console.log('Deployer:', signer.address); })" --network baseSepolia
+   npx hardhat run -e "import('hardhat').then(async h => { const hre = h.default || h; const conn = await hre.network.connect(); const [signer] = await conn.ethers.getSigners(); console.log('Deployer:', signer.address); })" --network arbitrumSepolia
    ```
 
 2. Or use a simple script:
@@ -23,12 +23,12 @@ These parameter files are used with Hardhat Ignition to deploy contracts.
 
 ## Deployment Commands
 
-### Deploy Base Protocol (Base Sepolia)
+### Deploy Base Protocol (Arbitrum Sepolia)
 
 ```bash
 npx hardhat ignition deploy ignition/modules/BaseProtocol.ts \
-  --network baseSepolia \
-  --parameters ignition/parameters/baseSepolia.json
+  --network arbitrumSepolia \
+  --parameters ignition/parameters/arbitrumSepolia.json
 ```
 
 ### Deploy Cross-Chain (Sepolia)
@@ -43,15 +43,15 @@ npx hardhat ignition deploy ignition/modules/CrossChain.ts \
 
 ### BaseProtocol Parameters
 
-- **pythAddress**: Pyth Network price feed contract address on Base Sepolia
-- **usdcAddress**: USDC token address on Base Sepolia
-- **lzEndpoint**: LayerZero V2 endpoint address on Base Sepolia
+- **pythAddress**: Pyth Network price feed contract address on Arbitrum Sepolia
+- **usdcAddress**: USDC token address on Arbitrum Sepolia
+- **lzEndpoint**: LayerZero V2 endpoint address on Arbitrum Sepolia
 - **lzDelegate**: Your deployer address (used as LayerZero delegate)
 - **poolManager**: Uniswap V4 PoolManager address
-  - **For Testnets (Base Sepolia)**: Deploy your own using:
+  - **For Testnets (Arbitrum Sepolia)**: Deploy your own using:
     ```bash
     forge script lib/v4-periphery/script/01_PoolManager.s.sol:DeployPoolManager \
-      --rpc-url $BASE_SEPOLIA_RPC_URL \
+      --rpc-url $ARBITRUM_SEPOLIA_RPC_URL \
       --broadcast \
       --private-key $PRIVATE_KEY
     ```
@@ -88,7 +88,7 @@ npx hardhat ignition deploy ignition/modules/CrossChain.ts \
 
 2. **Update Parameters**:
    - Copy the deployed PoolManager address from the output
-   - Update `ignition/parameters/baseSepolia.json`:
+   - Update `ignition/parameters/arbitrumSepolia.json`:
      ```json
      {
        "BaseProtocol": {
@@ -101,8 +101,8 @@ npx hardhat ignition deploy ignition/modules/CrossChain.ts \
 3. **Deploy Base Protocol**:
    ```bash
    npx hardhat ignition deploy ignition/modules/BaseProtocol.ts \
-     --network baseSepolia \
-     --parameters ignition/parameters/baseSepolia.json \
+     --network arbitrumSepolia \
+     --parameters ignition/parameters/arbitrumSepolia.json \
      --reset
    ```
 

@@ -32,7 +32,7 @@ async function main() {
   console.log(`   Network: ${network.name || network.chainId}`);
   console.log(`   Chain ID: ${network.chainId}`);
   console.log(`\n💡 Copy this address and replace 'REPLACE_WITH_YOUR_DEPLOYER_ADDRESS' in:`);
-  console.log(`   - ignition/parameters/baseSepolia.json (for lzDelegate and feeCollector)`);
+  console.log(`   - ignition/parameters/arbitrumSepolia.json (for lzDelegate and feeCollector)`);
   console.log(`   - ignition/parameters/sepolia.json (for lzDelegate)`);
   console.log();
 }

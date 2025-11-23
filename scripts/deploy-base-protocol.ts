@@ -18,7 +18,7 @@ dotenv.config();
 // CONFIGURATION
 // ============================================================================
 
-const NETWORK = process.env.NETWORK || "baseSepolia";
+const NETWORK = process.env.NETWORK || "arbitrumSepolia";
 const PARAMETERS_FILE = `ignition/parameters/${NETWORK}.json`;
 
 // ============================================================================
@@ -54,7 +54,7 @@ async function deployLiquidationHook(): Promise<string | null> {
 
     try {
         // Use Foundry to deploy the hook (better CREATE2 support)
-        const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
+        const rpcUrl = process.env.ARBITRUM_SEPOLIA_RPC_URL || process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc";
         const privateKey = process.env.PRIVATE_KEY;
 
         if (!privateKey) {
@@ -94,7 +94,7 @@ async function deployLiquidationHook(): Promise<string | null> {
     } catch (error: any) {
         log(`❌ Failed to deploy LiquidationHook: ${error.message}`);
         log("📋 You can deploy it manually later with:");
-        log("   forge script scripts/deploy-liquidation-hook.s.sol:DeployLiquidationHook --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast --private-key $PRIVATE_KEY");
+        log("   forge script scripts/deploy-liquidation-hook.s.sol:DeployLiquidationHook --rpc-url $ARBITRUM_SEPOLIA_RPC_URL --broadcast --private-key $PRIVATE_KEY");
         return null;
     }
 }
@@ -267,8 +267,8 @@ async function main() {
     if (!hookAddress) {
         console.log("\n⚠️  LiquidationHook deployment failed or skipped.");
         console.log("📋 Options:");
-        console.log("   1. Deploy manually: npx hardhat run scripts/deploy-liquidation-hook.ts --network baseSepolia");
-        console.log("      Then add the address to ignition/parameters/baseSepolia.json");
+        console.log(`   1. Deploy manually: npx hardhat run scripts/deploy-liquidation-hook.ts --network ${NETWORK}`);
+        console.log(`      Then add the address to ignition/parameters/${NETWORK}.json`);
         console.log("   2. The hook can be deployed later - BaseProtocol is already deployed\n");
     } else {
         // Step 3: Update parameters file with hook address
