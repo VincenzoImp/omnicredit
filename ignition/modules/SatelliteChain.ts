@@ -26,9 +26,9 @@ export default buildModule("SatelliteChain", (m) => {
 
     // Deploy LenderVault
     const lenderVault = m.contract("LenderVault", [
-        mockUSDC,
-        lzEndpoint,
-        delegate,
+        mockUSDC, // _localUSDC
+        lzEndpoint, // _lzEndpoint
+        delegate, // _delegate
     ]);
 
     // Deploy CollateralVault

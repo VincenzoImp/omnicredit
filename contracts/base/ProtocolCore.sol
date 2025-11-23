@@ -110,7 +110,7 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     event LiquidationManagerSet(address indexed liquidationManager);
     event CollateralDeposited(address indexed borrower, address indexed asset, uint256 amount, uint256 valueUSD);
     event CollateralReceivedCrossChain(address indexed borrower, address indexed asset, uint256 amount, uint32 srcEid);
-    event CollateralWithdrawn(address indexed borrower, uint256 ethAmount);
+    event CollateralWithdrawn(address indexed borrower, address indexed asset, uint256 amount);
     event LiquidationRepaid(address indexed borrower, uint256 amount);
     event ReservesAdded(uint256 amount);
     event CrossChainDepositReceived(address indexed lender, uint32 indexed srcEid, uint256 amount, uint256 shares);
@@ -331,43 +331,24 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     // ============ BORROWER FUNCTIONS ============
 
     /**
-     * @notice Deposit ETH as collateral (only on Base)
-     * @dev Borrower must deposit ETH on Base before borrowing
+     * @notice Withdraw collateral for a specific asset (only if no active loan)
+     * @param asset Address of the collateral asset (address(0) for ETH)
+     * @param amount Amount to withdraw
+     * @dev Collateral is now managed cross-chain via CollateralVault
+     * This function is kept for backward compatibility but should not be used
+     * Collateral withdrawals should be done through CollateralVault on source chain
      */
-    function depositCollateral() external payable nonReentrant {
-        if (msg.value == 0) revert InvalidAmount();
-
-        // Calculate collateral value in USD using price oracle
-        uint256 valueUSD18 = priceOracle.getAssetValueUSD(
-            address(0), // ETH address
-            msg.value,
-            18 // ETH decimals
-        );
-        // Convert to 6 decimals (USDC standard)
-        uint256 valueUSD6 = valueUSD18 / 1e12;
-
-        // Update borrower collateral
-        borrowerCollateral[msg.sender] += msg.value;
-
-        emit CollateralDeposited(msg.sender, msg.value, valueUSD6);
-    }
-
-    /**
-     * @notice Withdraw ETH collateral (only if no active loan)
-     * @param amount Amount of ETH to withdraw (18 decimals)
-     */
-    function withdrawCollateral(uint256 amount) external nonReentrant {
+    function withdrawCollateral(address asset, uint256 amount) external nonReentrant {
         if (amount == 0) revert InvalidAmount();
-        if (borrowerCollateral[msg.sender] < amount) revert InsufficientCollateral();
+        if (borrowerCollateral[msg.sender][asset] < amount) revert InsufficientCollateral();
         if (loans[msg.sender].isActive) revert LoanAlreadyActive(); // Cannot withdraw if loan active
 
-        borrowerCollateral[msg.sender] -= amount;
+        borrowerCollateral[msg.sender][asset] -= amount;
 
-        // Transfer ETH back to borrower
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "ETH transfer failed");
+        // Note: Actual asset transfer happens on source chain via CollateralVault
+        // This just updates the collateral tracking on Arbitrum
 
-        emit CollateralWithdrawn(msg.sender, amount);
+        emit CollateralWithdrawn(msg.sender, asset, amount);
     }
 
     /**
@@ -383,13 +364,9 @@ contract ProtocolCore is OApp, ReentrancyGuard {
             revert InsufficientLiquidity();
         }
 
-        // Get collateral value from deposited ETH
-        uint256 ethAmount = borrowerCollateral[msg.sender];
-        if (ethAmount == 0) revert InsufficientCollateral();
-
-        // Calculate collateral value in USD
-        uint256 valueUSD18 = priceOracle.getAssetValueUSD(address(0), ethAmount, 18);
-        uint256 totalCollateral = valueUSD18 / 1e12; // Convert to 6 decimals
+        // Get total collateral value (sum of all assets)
+        uint256 totalCollateral = getBorrowerCollateralValue(msg.sender);
+        if (totalCollateral == 0) revert InsufficientCollateral();
 
         // Validate using LTV
         uint256 ltvBPS = creditScore.getLTV(msg.sender);
@@ -452,13 +429,9 @@ contract ProtocolCore is OApp, ReentrancyGuard {
             revert InsufficientLiquidity();
         }
 
-        // Get collateral value from deposited ETH
-        uint256 ethAmount = borrowerCollateral[msg.sender];
-        if (ethAmount == 0) revert InsufficientCollateral();
-
-        // Calculate collateral value in USD
-        uint256 valueUSD18 = priceOracle.getAssetValueUSD(address(0), ethAmount, 18);
-        uint256 totalCollateral = valueUSD18 / 1e12; // Convert to 6 decimals
+        // Get total collateral value (sum of all assets)
+        uint256 totalCollateral = getBorrowerCollateralValue(msg.sender);
+        if (totalCollateral == 0) revert InsufficientCollateral();
 
         // Validate using LTV
         uint256 ltvBPS = creditScore.getLTV(msg.sender);
@@ -581,9 +554,9 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     }
 
     /**
-     * @notice Receive cross-chain deposit from LenderDepositWrapper
+     * @notice Receive cross-chain messages from LenderVault or CollateralVault
      * @param _origin Origin information (source chain EID and sender)
-     * @param _message Encoded deposit message
+     * @param _message Encoded message (deposit or collateral update)
      */
     function _lzReceive(
         Origin calldata _origin,
@@ -592,6 +565,24 @@ contract ProtocolCore is OApp, ReentrancyGuard {
         address /* _executor */,
         bytes calldata /* _extraData */
     ) internal override {
+        // Decode message type first
+        uint8 messageType = abi.decode(_message, (uint8));
+
+        if (messageType == 1) {
+            // Type 1 = LENDER DEPOSIT from LenderVault
+            _handleLenderDeposit(_origin, _message);
+        } else if (messageType == 3) {
+            // Type 3 = COLLATERAL UPDATE from CollateralVault
+            _handleCollateralUpdate(_origin, _message);
+        } else {
+            revert("Invalid message type");
+        }
+    }
+
+    /**
+     * @notice Handle lender deposit from LenderVault
+     */
+    function _handleLenderDeposit(Origin calldata _origin, bytes calldata _message) internal {
         // Verify sender is authorized lender vault
         if (authorizedLenderVaults[_origin.srcEid] != _origin.sender) {
             revert UnauthorizedLenderVault();
@@ -603,11 +594,10 @@ contract ProtocolCore is OApp, ReentrancyGuard {
             (uint8, address, uint256, bytes32)
         );
 
-        require(messageType == 1, "Invalid message type"); // Type 1 = DEPOSIT
-        if (amount == 0) revert InvalidAmount(); // ✅ Validazione amount aggiunta
+        require(messageType == 1, "Invalid message type");
+        if (amount == 0) revert InvalidAmount();
 
         // Process deposit (USDC already bridged via OFT directly to this contract)
-        // Verify USDC balance (should have been minted by OFT)
         if (lendingToken.balanceOf(address(this)) < amount) {
             revert InsufficientLiquidity();
         }
@@ -629,13 +619,77 @@ contract ProtocolCore is OApp, ReentrancyGuard {
         emit CrossChainDepositReceived(lender, _origin.srcEid, amount, sharesIssued);
         emit Deposited(lender, amount, sharesIssued);
 
-        // Send confirmation back to wrapper (optional, for refund handling)
+        // Send confirmation back to vault
         bytes memory responsePayload = abi.encode(uint8(2), guid, true); // Type 2 = DEPOSIT_CONFIRMATION
         bytes memory options = OptionsBuilder.newOptions();
-        options.addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0); // Use configurable gas limit
-
+        options.addExecutorLzReceiveOption(uint128(lzReceiveGasLimit), 0);
         MessagingFee memory fee = _quote(_origin.srcEid, responsePayload, options, false);
         _lzSend(_origin.srcEid, responsePayload, options, fee, payable(address(this)));
+    }
+
+    /**
+     * @notice Handle collateral update from CollateralVault
+     */
+    function _handleCollateralUpdate(Origin calldata _origin, bytes calldata _message) internal {
+        // Verify sender is authorized collateral vault
+        if (authorizedCollateralVaults[_origin.srcEid] != _origin.sender) {
+            revert UnauthorizedCollateralVault();
+        }
+
+        // Decode message: (messageType, user, asset, amount, valueUSD, isDeposit)
+        (uint8 messageType, address user, address asset, uint256 amount, uint256 valueUSD, bool isDeposit) = abi.decode(
+            _message,
+            (uint8, address, address, uint256, uint256, bool)
+        );
+
+        require(messageType == 3, "Invalid message type");
+
+        if (isDeposit) {
+            // Add collateral
+            borrowerCollateral[user][asset] += amount;
+            emit CollateralReceivedCrossChain(user, asset, amount, _origin.srcEid);
+            emit CollateralDeposited(user, asset, amount, valueUSD);
+        } else {
+            // Remove collateral (after loan repaid)
+            if (borrowerCollateral[user][asset] < amount) revert InsufficientCollateral();
+            borrowerCollateral[user][asset] -= amount;
+            emit CollateralWithdrawn(user, asset, amount);
+        }
+    }
+
+    // ============ VIEW FUNCTIONS ============
+
+    /**
+     * @notice Get borrower's total collateral value in USD (sum of all assets)
+     * @param borrower Address of the borrower
+     * @return valueUSD Total collateral value in USD (6 decimals)
+     * @dev Sums the USD value of all collateral assets deposited by the borrower
+     */
+    function getBorrowerCollateralValue(address borrower) public view returns (uint256 valueUSD) {
+        // For now, we support ETH (address(0)) and NATIVE_TOKEN
+        // In production, you might want to maintain a list of assets per borrower
+        
+        uint256 totalValueUSD18 = 0;
+        
+        // ETH collateral (address(0))
+        uint256 ethAmount = borrowerCollateral[borrower][address(0)];
+        if (ethAmount > 0) {
+            uint256 ethValueUSD18 = priceOracle.getAssetValueUSD(address(0), ethAmount, 18);
+            totalValueUSD18 += ethValueUSD18;
+        }
+        
+        // NATIVE_TOKEN collateral (0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE)
+        address nativeToken = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
+        uint256 nativeAmount = borrowerCollateral[borrower][nativeToken];
+        if (nativeAmount > 0) {
+            uint256 nativeValueUSD18 = priceOracle.getAssetValueUSD(nativeToken, nativeAmount, 18);
+            totalValueUSD18 += nativeValueUSD18;
+        }
+        
+        // Add other native tokens here (MATIC, etc.) as needed
+        // For now, we only support ETH, but the structure allows for multiple tokens
+        
+        valueUSD = totalValueUSD18 / 1e12; // Convert to 6 decimals
     }
 
     // ============ INTERNAL FUNCTIONS ============
@@ -825,18 +879,6 @@ contract ProtocolCore is OApp, ReentrancyGuard {
         return bytes32(uint256(uint160(_addr)));
     }
 
-    /**
-     * @notice Get borrower's collateral value in USD
-     * @param borrower Address of the borrower
-     * @return valueUSD Collateral value in USD (6 decimals)
-     */
-    function getBorrowerCollateralValue(address borrower) external view returns (uint256 valueUSD) {
-        uint256 ethAmount = borrowerCollateral[borrower];
-        if (ethAmount == 0) return 0;
-
-        uint256 valueUSD18 = priceOracle.getAssetValueUSD(address(0), ethAmount, 18);
-        valueUSD = valueUSD18 / 1e12; // Convert to 6 decimals
-    }
 
     /**
      * @notice Quote fee for cross-chain borrow

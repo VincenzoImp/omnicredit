@@ -276,8 +276,9 @@ contract CollateralVault is OApp, ReentrancyGuard {
     ) internal {
         if (protocolCorePeer == bytes32(0) || protocolCoreEid == 0) revert InvalidProtocolCore();
 
-        // Encode message payload: (user, asset, amount, valueUSD, isDeposit)
-        bytes memory payload = abi.encode(user, asset, amount, valueUSD, isDeposit);
+        // Encode message payload: (messageType, user, asset, amount, valueUSD, isDeposit)
+        // messageType = 3 for COLLATERAL_UPDATE
+        bytes memory payload = abi.encode(uint8(3), user, asset, amount, valueUSD, isDeposit);
 
         // Build LayerZero options (200k gas for lzReceive on destination)
         bytes memory options = OptionsBuilder.newOptions();
