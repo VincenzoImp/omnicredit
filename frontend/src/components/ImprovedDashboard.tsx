@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useSwitchChain } from 'wagmi';
 import { arbitrumSepolia, baseSepolia, optimismSepolia } from 'wagmi/chains';
-import ImprovedBalanceCard from './ImprovedBalanceCard';
-import ImprovedLenderPanel from './ImprovedLenderPanel';
-import ImprovedBorrowerPanel from './ImprovedBorrowerPanel';
+import BalanceCard from './BalanceCard';
+import LenderPanel from './LenderPanel';
+import BorrowerPanel from './BorrowerPanel';
 
 const CHAINS = [
   { id: arbitrumSepolia.id, name: 'Arbitrum Sepolia' },
@@ -12,13 +12,13 @@ const CHAINS = [
   { id: optimismSepolia.id, name: 'Optimism Sepolia' },
 ];
 
-export default function ImprovedDashboard() {
+export default function Dashboard() {
   const { isConnected } = useAccount();
   const { switchChain } = useSwitchChain();
   const [selectedChainId, setSelectedChainId] = useState<number>(arbitrumSepolia.id);
   const [selectedChainName, setSelectedChainName] = useState<string>('Arbitrum Sepolia');
 
-  console.log('🎨 ImprovedDashboard rendering, isConnected:', isConnected);
+  console.log('🎨 Dashboard rendering, isConnected:', isConnected);
 
   const handleChainSelect = (chainId: number, chainName: string) => {
     setSelectedChainId(chainId);
@@ -69,7 +69,7 @@ export default function ImprovedDashboard() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {CHAINS.map((chain) => (
-                  <ImprovedBalanceCard
+                  <BalanceCard
                     key={chain.id}
                     chainId={chain.id}
                     chainName={chain.name}
@@ -85,11 +85,11 @@ export default function ImprovedDashboard() {
 
             {/* Action Panels */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <ImprovedLenderPanel
+              <LenderPanel
                 selectedChainId={selectedChainId}
                 selectedChainName={selectedChainName}
               />
-              <ImprovedBorrowerPanel
+              <BorrowerPanel
                 selectedChainId={selectedChainId}
                 selectedChainName={selectedChainName}
               />

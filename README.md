@@ -40,22 +40,22 @@
 
 ```
 ┌─────────────────────────────────────────────────┐
-│         ARBITRUM SEPOLIA (Hub Chain)             │
-│                                                  │
-│  ProtocolCore ◄─── CreditScore (0-1000)        │
+│         ARBITRUM SEPOLIA (Hub Chain)            │
+│                                                 │
+│  ProtocolCore ◄─── CreditScore (0-1000)         │
 │       │            PriceOracle (Pyth)           │
 │       │            LiquidationManager (V4)      │
-│       │                                          │
-└───────┼──────────────────────────────────────────┘
+│       │                                         │
+└───────┼─────────────────────────────────────────┘
         │
     LayerZero V2 (OApp + OFT)
         │
 ┌───────┴──────────┬──────────────────────┐
 │                  │                      │
-│  BASE SEPOLIA    │  OPTIMISM SEPOLIA   │
+│  BASE SEPOLIA    │  OPTIMISM SEPOLIA    │
 │  LenderVault     │  LenderVault         │
 │  CollateralVault │  CollateralVault     │
-│  MockUSDC ◄─► OFT│  MockUSDC ◄─► OFT   │
+│  MockUSDC ◄─► OFT│  MockUSDC ◄─► OFT    │
 └──────────────────┴──────────────────────┘
 ```
 

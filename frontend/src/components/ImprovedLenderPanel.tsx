@@ -6,75 +6,21 @@ import {
   useReadContract,
 } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
-import { getAddress, DeploymentAddresses } from '../deployments';
+import { getAddress } from '../deployments';
+import type { DeploymentAddresses } from '../deployments';
 import toast from 'react-hot-toast';
 
-interface ImprovedLenderPanelProps {
+import { MOCKUSDC_ABI, PROTOCOL_CORE_ABI } from '../abis';
+
+interface LenderPanelProps {
   selectedChainId: number;
   selectedChainName: string;
 }
 
-const MOCKUSDC_ABI = [
-  {
-    inputs: [
-      { name: 'to', type: 'address' },
-      { name: 'amount', type: 'uint256' }
-    ],
-    name: 'mint',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [
-      { name: 'spender', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    name: 'approve',
-    outputs: [{ name: '', type: 'bool' }],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' }
-    ],
-    name: 'allowance',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
-const PROTOCOL_CORE_ABI = [
-  {
-    inputs: [{ name: 'amount', type: 'uint256' }],
-    name: 'deposit',
-    outputs: [{ name: 'sharesIssued', type: 'uint256' }],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'shareAmount', type: 'uint256' }],
-    name: 'withdraw',
-    outputs: [{ name: 'amountWithdrawn', type: 'uint256' }],
-    stateMutability: 'nonpayable',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'shares',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
-export default function ImprovedLenderPanel({
+export default function LenderPanel({
   selectedChainId,
   selectedChainName,
-}: ImprovedLenderPanelProps) {
+}: LenderPanelProps) {
   const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState('');
   const [action, setAction] = useState<'mint' | 'deposit' | 'withdraw'>('mint');

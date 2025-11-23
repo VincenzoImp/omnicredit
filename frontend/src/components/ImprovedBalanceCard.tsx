@@ -1,55 +1,23 @@
 import { useAccount, useBalance, useReadContract } from 'wagmi';
 import { formatEther, formatUnits } from 'viem';
-import { getAddress, DeploymentAddresses } from '../deployments';
+import { getAddress } from '../deployments';
+import type { DeploymentAddresses } from '../deployments';
 
-interface ImprovedBalanceCardProps {
+import { MOCKUSDC_ABI, PROTOCOL_CORE_ABI } from '../abis';
+
+interface BalanceCardProps {
   chainId: number;
   chainName: string;
   isSelected: boolean;
   onSelect: () => void;
 }
 
-const MOCKUSDC_ABI = [
-  {
-    inputs: [{ name: 'account', type: 'address' }],
-    name: 'balanceOf',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
-const PROTOCOL_CORE_ABI = [
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'shares',
-    outputs: [{ name: '', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'user', type: 'address' }],
-    name: 'loans',
-    outputs: [
-      { name: 'principal', type: 'uint256' },
-      { name: 'interestRate', type: 'uint256' },
-      { name: 'lastAccrualTimestamp', type: 'uint256' },
-      { name: 'accruedInterest', type: 'uint256' },
-      { name: 'collateralValueUSD', type: 'uint256' },
-      { name: 'dueDate', type: 'uint256' },
-      { name: 'isActive', type: 'bool' },
-    ],
-    stateMutability: 'view',
-    type: 'function',
-  },
-] as const;
-
-export default function ImprovedBalanceCard({
+export default function BalanceCard({
   chainId,
   chainName,
   isSelected,
   onSelect,
-}: ImprovedBalanceCardProps) {
+}: BalanceCardProps) {
   const { address } = useAccount();
 
   // Map human-readable chain name to deployments key
@@ -145,7 +113,7 @@ export default function ImprovedBalanceCard({
         </div>
 
         {/* Lending Position (only Arbitrum) */}
-        {chainKey === 'arbitrumsepolia' && (
+        {chainKey === 'arbitrumSepolia' && (
           <div className="bg-green-500/20 rounded-lg p-3 border border-green-500/30">
             <p className="text-green-200 text-xs mb-2 font-semibold">💰 Lending</p>
             <div className="flex justify-between">
@@ -158,7 +126,7 @@ export default function ImprovedBalanceCard({
         )}
 
         {/* Active Loan (only Arbitrum) */}
-        {chainKey === 'arbitrumsepolia' && hasActiveLoan && (
+        {chainKey === 'arbitrumSepolia' && hasActiveLoan && (
           <div className="bg-red-500/20 rounded-lg p-3 border border-red-500/30">
             <p className="text-red-200 text-xs mb-2 font-semibold">🏦 Active Loan</p>
             <div className="space-y-1">
@@ -184,7 +152,7 @@ export default function ImprovedBalanceCard({
           </div>
         )}
 
-        {chainKey === 'arbitrumsepolia' && !hasActiveLoan && (
+        {chainKey === 'arbitrumSepolia' && !hasActiveLoan && (
           <div className="bg-blue-500/20 rounded-lg p-3 border border-blue-500/30">
             <p className="text-blue-200 text-xs text-center">No active loan</p>
           </div>

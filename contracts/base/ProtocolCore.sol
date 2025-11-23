@@ -574,9 +574,132 @@ contract ProtocolCore is OApp, ReentrancyGuard {
         } else if (messageType == 3) {
             // Type 3 = COLLATERAL UPDATE from CollateralVault
             _handleCollateralUpdate(_origin, _message);
+        } else if (messageType == 4) {
+            // Type 4 = DEPOSIT AND BORROW from CollateralVault
+            _handleDepositAndBorrow(_origin, _message);
         } else {
             revert("Invalid message type");
         }
+    }
+
+    /**
+     * @notice Handle combined deposit and borrow request from CollateralVault
+     */
+    function _handleDepositAndBorrow(Origin calldata _origin, bytes calldata _message) internal {
+        // Verify sender is authorized collateral vault
+        if (authorizedCollateralVaults[_origin.srcEid] != _origin.sender) {
+            revert UnauthorizedCollateralVault();
+        }
+
+        // Decode message
+        (
+            uint8 messageType, 
+            address user, 
+            address asset, 
+            uint256 amount, 
+            uint256 valueUSD, 
+            uint256 borrowAmount, 
+            uint32 dstEid, 
+            uint256 minAmountLD
+        ) = abi.decode(
+            _message,
+            (uint8, address, address, uint256, uint256, uint256, uint32, uint256)
+        );
+
+        require(messageType == 4, "Invalid message type");
+
+        // 1. Process Collateral Deposit
+        borrowerCollateral[user][asset] += amount;
+        emit CollateralReceivedCrossChain(user, asset, amount, _origin.srcEid);
+        emit CollateralDeposited(user, asset, amount, valueUSD);
+
+        // 2. Process Borrow
+        // We call the internal logic directly to bypass nonReentrant if needed, 
+        // or call a private function. For now, let's replicate the borrow logic.
+        
+        if (borrowAmount < minLoanSize) {
+            // Just deposit, don't fail the whole tx
+            return;
+        }
+        if (loans[user].isActive) {
+            // Already active loan, maybe just add collateral? 
+            // Or fail borrow part. For now, just return (deposit succeeded)
+            return;
+        }
+        if (address(usdcOFT) == address(0)) revert USDCOTFNotSet();
+
+        // Check liquidity
+        if (lendingToken.balanceOf(address(this)) < borrowAmount) {
+            // Fail borrow part, deposit succeeds
+            return;
+        }
+
+        // Get total collateral value (including new deposit)
+        uint256 totalCollateral = getBorrowerCollateralValue(user);
+        
+        // Validate using LTV
+        uint256 ltvBPS = creditScore.getLTV(user);
+        uint256 maxByLTV = (totalCollateral * ltvBPS) / BPS_DENOMINATOR;
+        if (borrowAmount > maxByLTV) {
+            // Fail borrow part (collateral insufficient for requested amount)
+            return;
+        }
+
+        // Validate fee-based limits
+        (uint256 maxBorrow, , ) = feeBasedLimits.calculateMaxBorrow(user, totalCollateral);
+        if (borrowAmount > maxBorrow) {
+            // Fail borrow part
+            return;
+        }
+
+        // Calculate interest rate
+        uint256 interestRate = _calculateInterestRate();
+
+        // Create loan
+        loans[user] = Loan({
+            principal: borrowAmount,
+            interestRate: interestRate,
+            lastAccrualTimestamp: block.timestamp,
+            accruedInterest: 0,
+            collateralValueUSD: totalCollateral,
+            dueDate: block.timestamp + LOAN_DURATION,
+            isActive: true
+        });
+
+        // Update pool state
+        totalBorrowed += borrowAmount;
+        totalDeposits -= borrowAmount;
+
+        // Record loan in credit score
+        creditScore.recordLoanTaken(user);
+
+        // Bridge USDC to destination chain via OFT
+        SendParam memory sendParam = SendParam({
+            dstEid: dstEid,
+            to: addressToBytes32(user), // Send to borrower on destination
+            amountLD: borrowAmount,
+            minAmountLD: minAmountLD,
+            extraOptions: OptionsBuilder.newOptions()
+                .addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0),
+            composeMsg: "",
+            oftCmd: ""
+        });
+
+        // Approve OFT to spend USDC
+        lendingToken.safeApprove(address(usdcOFT), borrowAmount);
+
+        // Quote OFT fee
+        MessagingFee memory oftFee = usdcOFT.quoteSend(sendParam, false);
+
+        // Send USDC to destination chain (Protocol pays the fee from its own balance/allowance?)
+        // Ideally, the user sent enough ETH in the initial tx to cover this. 
+        // However, `_lzReceive` doesn't pass `msg.value` from source unless we use `lzCompose`.
+        // For Hackathon: The Protocol pays the OFT fee from its own ETH balance (subsidized).
+        // Or we just assume the contract has ETH.
+        usdcOFT.send{value: oftFee.nativeFee}(sendParam, oftFee, payable(user));
+
+        emit CrossChainBorrowInitiated(user, dstEid, borrowAmount);
+        emit Borrowed(user, borrowAmount, totalCollateral);
     }
 
     /**

@@ -30,6 +30,7 @@ export const deployments = rawDeployments as DeploymentAddresses;
 
 // Kept for backwards compatibility; now a no-op
 export async function loadDeployments(): Promise<void> {
+  console.log('Deployments already loaded from bundle');
   return Promise.resolve();
 }
 
@@ -37,14 +38,32 @@ export function getAddress(
   chain: keyof DeploymentAddresses,
   contract: string
 ): `0x${string}` | undefined {
-  const chainDeployments = deployments[chain] as Record<string, string>;
+  // Safety check for deployments object
+  if (!deployments) {
+    console.error('Deployments object is undefined! Check deployments.json import.');
+    return undefined;
+  }
+
+  const chainDeployments = deployments[chain] as Record<string, string> | undefined;
+  
+  if (!chainDeployments) {
+    // Warn only once per chain to avoid console spam, or use debug level
+    console.warn(`No deployments found for chain "${chain}". Available chains:`, Object.keys(deployments));
+    return undefined;
+  }
+
+  // Safety check for contract
+  if (!contract) {
+    console.error('Contract name is undefined or empty');
+    return undefined;
+  }
+
   const address = chainDeployments[contract];
   
   if (!address) {
-    console.error(`Available contracts on ${chain}:`, Object.keys(chainDeployments));
+    console.warn(`Contract "${contract}" not found on chain "${chain}". Available contracts:`, Object.keys(chainDeployments));
     return undefined;
   }
   
   return address as `0x${string}`;
 }
-

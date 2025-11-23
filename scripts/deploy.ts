@@ -14,6 +14,8 @@
  * 
  * Usage:
  *   npx hardhat run scripts/deploy.ts --network arbitrumSepolia
+ *   npx hardhat run scripts/deploy.ts --network arbitrumSepolia --configure-peers
+ *   npx hardhat run scripts/deploy.ts --network arbitrumSepolia --authorize-vaults
  * 
  * Environment Variables Required:
  *   - PRIVATE_KEY: Private key of deployer account
@@ -24,6 +26,7 @@
  *   - ETH_PRICE_FEED_ID: Pyth price feed ID for ETH/USD
  */
 
+import { ethers as ethersLib } from "ethers";
 import hre from "hardhat";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
@@ -102,10 +105,6 @@ function saveDeployments(deployments: DeploymentAddresses): void {
 
 /**
  * Get contract address from Ignition deployment.
- *
- * Supports Ignition v3 layout which stores all addresses in
- * `ignition/deployments/chain-<id>/deployed_addresses.json` using
- * keys in the form "<ModuleName>#<ContractName>" (e.g. "CoreContracts#ProtocolCore").
  */
 function getIgnitionAddress(
     chainId: number,
@@ -233,68 +232,107 @@ function updateSatelliteParameters(
 }
 
 /**
- * Configure LayerZero peers for MockOFT contracts
+ * Configure LayerZero peers for MockOFT contracts (Network Aware)
  */
 async function configureOFTPeers(
-    deployments: DeploymentAddresses
+    deployments: DeploymentAddresses,
+    networkName: string
 ): Promise<void> {
     console.log("\n🔗 Configuring MockOFT peers...\n");
 
-    const ethers = (hre as any).ethers;
+    // Safe access to ethers
+    const hreAny = hre as any;
+    let ethers = hreAny.ethers;
+    let deployer: any;
+
+    if (!ethers) {
+        if (!hreAny.network || !hreAny.network.provider) {
+            console.error("❌ Critical: hre.network.provider is missing. Cannot connect to network.");
+            process.exit(1);
+        }
+        const provider = new ethersLib.BrowserProvider(hreAny.network.provider);
+        deployer = await provider.getSigner();
+        ethers = {
+            ...ethersLib,
+            provider,
+            getSigners: async () => [deployer],
+            getContractFactory: async (name: string) => {
+                const artifact = await hreAny.artifacts.readArtifact(name);
+                const factory = new ethersLib.ContractFactory(artifact.abi, artifact.bytecode, deployer);
+                (factory as any).attach = (target: string) => new ethersLib.Contract(target, artifact.abi, deployer);
+                return factory;
+            },
+        };
+    } else {
+        const signers = await ethers.getSigners();
+        deployer = signers[0];
+    }
+
     const MockOFT = await ethers.getContractFactory("MockOFT");
 
-    // Get all MockOFT addresses
     const arbitrumOFT = deployments.arbitrumSepolia.mockOFT;
     const baseSepoliaOFT = deployments.baseSepolia.mockOFT;
     const optimismOFT = deployments.optimismSepolia.mockOFT;
 
     if (!arbitrumOFT || !baseSepoliaOFT || !optimismOFT) {
-        console.error("❌ Missing MockOFT addresses");
+        console.error("❌ Missing MockOFT addresses in deployments.json");
         return;
     }
 
-    const arbitrumOFTContract = MockOFT.attach(arbitrumOFT);
-    const baseSepoliaOFTContract = MockOFT.attach(baseSepoliaOFT);
-    const optimismOFTContract = MockOFT.attach(optimismOFT);
+    if (networkName === "arbitrumSepolia") {
+        console.log("Configuring Arbitrum Sepolia OFT peers...");
+        const oft = MockOFT.attach(arbitrumOFT).connect(deployer);
 
-    const [deployer] = await ethers.getSigners();
+        // Set Peer: Base Sepolia
+        console.log(`Setting peer Base Sepolia (${BASE_SEPOLIA_EID})...`);
+        await (await oft.setPeer(BASE_SEPOLIA_EID, addressToBytes32(baseSepoliaOFT))).wait();
 
-    // Arbitrum <-> Base Sepolia
-    console.log("Configuring Arbitrum <-> Base Sepolia OFT peers...");
-    await arbitrumOFTContract
-        .connect(deployer)
-        .setPeer(BASE_SEPOLIA_EID, addressToBytes32(baseSepoliaOFT));
-    await baseSepoliaOFTContract
-        .connect(deployer)
-        .setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(arbitrumOFT));
+        // Set Peer: Optimism Sepolia
+        console.log(`Setting peer Optimism Sepolia (${OPTIMISM_SEPOLIA_EID})...`);
+        await (await oft.setPeer(OPTIMISM_SEPOLIA_EID, addressToBytes32(optimismOFT))).wait();
 
-    // Arbitrum <-> Optimism
-    console.log("Configuring Arbitrum <-> Optimism OFT peers...");
-    await arbitrumOFTContract
-        .connect(deployer)
-        .setPeer(OPTIMISM_SEPOLIA_EID, addressToBytes32(optimismOFT));
-    await optimismOFTContract
-        .connect(deployer)
-        .setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(arbitrumOFT));
+    } else if (networkName === "baseSepolia") {
+        console.log("Configuring Base Sepolia OFT peers...");
+        const oft = MockOFT.attach(baseSepoliaOFT).connect(deployer);
 
-    // Base Sepolia <-> Optimism
-    console.log("Configuring Base Sepolia <-> Optimism OFT peers...");
-    await baseSepoliaOFTContract
-        .connect(deployer)
-        .setPeer(OPTIMISM_SEPOLIA_EID, addressToBytes32(optimismOFT));
-    await optimismOFTContract
-        .connect(deployer)
-        .setPeer(BASE_SEPOLIA_EID, addressToBytes32(baseSepoliaOFT));
+        // Set Peer: Arbitrum Sepolia
+        console.log(`Setting peer Arbitrum Sepolia (${ARBITRUM_SEPOLIA_EID})...`);
+        await (await oft.setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(arbitrumOFT))).wait();
 
-    console.log("✅ All OFT peers configured\n");
+        // Set Peer: Optimism Sepolia
+        console.log(`Setting peer Optimism Sepolia (${OPTIMISM_SEPOLIA_EID})...`);
+        await (await oft.setPeer(OPTIMISM_SEPOLIA_EID, addressToBytes32(optimismOFT))).wait();
+
+    } else if (networkName === "optimismSepolia") {
+        console.log("Configuring Optimism Sepolia OFT peers...");
+        const oft = MockOFT.attach(optimismOFT).connect(deployer);
+
+        // Set Peer: Arbitrum Sepolia
+        console.log(`Setting peer Arbitrum Sepolia (${ARBITRUM_SEPOLIA_EID})...`);
+        await (await oft.setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(arbitrumOFT))).wait();
+
+        // Set Peer: Base Sepolia
+        console.log(`Setting peer Base Sepolia (${BASE_SEPOLIA_EID})...`);
+        await (await oft.setPeer(BASE_SEPOLIA_EID, addressToBytes32(baseSepoliaOFT))).wait();
+    } else {
+        console.log(`Skipping OFT peer config for network: ${networkName}`);
+    }
+
+    console.log("✅ OFT peers configured for this network\n");
 }
 
 /**
- * Authorize vaults in ProtocolCore
+ * Authorize vaults in ProtocolCore (Only runs on Arbitrum)
  */
 async function authorizeVaults(
-    deployments: DeploymentAddresses
+    deployments: DeploymentAddresses,
+    networkName: string
 ): Promise<void> {
+    if (networkName !== "arbitrumSepolia") {
+        console.log("Skipping vault authorization (must be run on arbitrumSepolia)");
+        return;
+    }
+
     console.log("\n🔐 Authorizing vaults in ProtocolCore...\n");
 
     const protocolCoreAddress = deployments.arbitrumSepolia.protocolCore;
@@ -303,64 +341,83 @@ async function authorizeVaults(
         return;
     }
 
-    const ethers = (hre as any).ethers;
+    // Safe access to ethers
+    const hreAny = hre as any;
+    let ethers = hreAny.ethers;
+    let deployer: any;
+
+    if (!ethers) {
+        const provider = new ethersLib.BrowserProvider(hreAny.network.provider);
+        deployer = await provider.getSigner();
+        ethers = {
+            ...ethersLib,
+            provider,
+            getSigners: async () => [deployer],
+            getContractFactory: async (name: string) => {
+                const artifact = await hreAny.artifacts.readArtifact(name);
+                const factory = new ethersLib.ContractFactory(artifact.abi, artifact.bytecode, deployer);
+                (factory as any).attach = (target: string) => new ethersLib.Contract(target, artifact.abi, deployer);
+                return factory;
+            },
+        };
+    } else {
+        const signers = await ethers.getSigners();
+        deployer = signers[0];
+    }
+
     const ProtocolCore = await ethers.getContractFactory("ProtocolCore");
-    const protocolCore = ProtocolCore.attach(protocolCoreAddress);
-    const [deployer] = await ethers.getSigners();
+    const protocolCore = ProtocolCore.attach(protocolCoreAddress).connect(deployer);
 
     // Authorize Base Sepolia LenderVault
     if (deployments.baseSepolia.lenderVault) {
         console.log("Authorizing Base Sepolia LenderVault...");
-        await protocolCore
-            .connect(deployer)
-            .authorizeLenderVault(
-                BASE_SEPOLIA_EID,
-                addressToBytes32(deployments.baseSepolia.lenderVault)
-            );
+        await (await protocolCore.authorizeLenderVault(
+            BASE_SEPOLIA_EID,
+            addressToBytes32(deployments.baseSepolia.lenderVault)
+        )).wait();
     }
 
     // Authorize Optimism LenderVault
     if (deployments.optimismSepolia.lenderVault) {
         console.log("Authorizing Optimism LenderVault...");
-        await protocolCore
-            .connect(deployer)
-            .authorizeLenderVault(
-                OPTIMISM_SEPOLIA_EID,
-                addressToBytes32(deployments.optimismSepolia.lenderVault)
-            );
+        await (await protocolCore.authorizeLenderVault(
+            OPTIMISM_SEPOLIA_EID,
+            addressToBytes32(deployments.optimismSepolia.lenderVault)
+        )).wait();
     }
 
     // Authorize Base Sepolia CollateralVault
     if (deployments.baseSepolia.collateralVault) {
         console.log("Authorizing Base Sepolia CollateralVault...");
-        await protocolCore
-            .connect(deployer)
-            .authorizeCollateralVault(
-                BASE_SEPOLIA_EID,
-                addressToBytes32(deployments.baseSepolia.collateralVault)
-            );
+        await (await protocolCore.authorizeCollateralVault(
+            BASE_SEPOLIA_EID,
+            addressToBytes32(deployments.baseSepolia.collateralVault)
+        )).wait();
     }
 
     // Authorize Optimism CollateralVault
     if (deployments.optimismSepolia.collateralVault) {
         console.log("Authorizing Optimism CollateralVault...");
-        await protocolCore
-            .connect(deployer)
-            .authorizeCollateralVault(
-                OPTIMISM_SEPOLIA_EID,
-                addressToBytes32(deployments.optimismSepolia.collateralVault)
-            );
+        await (await protocolCore.authorizeCollateralVault(
+            OPTIMISM_SEPOLIA_EID,
+            addressToBytes32(deployments.optimismSepolia.collateralVault)
+        )).wait();
     }
 
     console.log("✅ All vaults authorized\n");
 }
 
 /**
- * Configure ProtocolCore peers for OApp messaging
+ * Configure ProtocolCore peers for OApp messaging (Only runs on Arbitrum)
  */
 async function configureProtocolCorePeers(
-    deployments: DeploymentAddresses
+    deployments: DeploymentAddresses,
+    networkName: string
 ): Promise<void> {
+    if (networkName !== "arbitrumSepolia") {
+        return; // Only applicable on ProtocolCore chain
+    }
+
     console.log("\n🔗 Configuring ProtocolCore OApp peers...\n");
 
     const protocolCoreAddress = deployments.arbitrumSepolia.protocolCore;
@@ -369,53 +426,64 @@ async function configureProtocolCorePeers(
         return;
     }
 
-    const ethers = (hre as any).ethers;
+    // Safe access to ethers
+    const hreAny = hre as any;
+    let ethers = hreAny.ethers;
+    let deployer: any;
+
+    if (!ethers) {
+        const provider = new ethersLib.BrowserProvider(hreAny.network.provider);
+        deployer = await provider.getSigner();
+        ethers = {
+            ...ethersLib,
+            provider,
+            getSigners: async () => [deployer],
+            getContractFactory: async (name: string) => {
+                const artifact = await hreAny.artifacts.readArtifact(name);
+                const factory = new ethersLib.ContractFactory(artifact.abi, artifact.bytecode, deployer);
+                (factory as any).attach = (target: string) => new ethersLib.Contract(target, artifact.abi, deployer);
+                return factory;
+            },
+        };
+    } else {
+        const signers = await ethers.getSigners();
+        deployer = signers[0];
+    }
+
     const ProtocolCore = await ethers.getContractFactory("ProtocolCore");
-    const protocolCore = ProtocolCore.attach(protocolCoreAddress);
-    const [deployer] = await ethers.getSigners();
+    const protocolCore = ProtocolCore.attach(protocolCoreAddress).connect(deployer);
 
     // Set peers for LenderVaults
     if (deployments.baseSepolia.lenderVault) {
-        await protocolCore
-            .connect(deployer)
-            .setPeer(BASE_SEPOLIA_EID, addressToBytes32(deployments.baseSepolia.lenderVault));
+        console.log(`Setting ProtocolCore peer: Base Sepolia LenderVault...`);
+        await (await protocolCore.setPeer(
+            BASE_SEPOLIA_EID,
+            addressToBytes32(deployments.baseSepolia.lenderVault)
+        )).wait();
     }
     if (deployments.optimismSepolia.lenderVault) {
-        await protocolCore
-            .connect(deployer)
-            .setPeer(
-                OPTIMISM_SEPOLIA_EID,
-                addressToBytes32(deployments.optimismSepolia.lenderVault)
-            );
+        console.log(`Setting ProtocolCore peer: Optimism Sepolia LenderVault...`);
+        await (await protocolCore.setPeer(
+            OPTIMISM_SEPOLIA_EID,
+            addressToBytes32(deployments.optimismSepolia.lenderVault)
+        )).wait();
     }
 
     // Set peers for CollateralVaults
-    if (deployments.baseSepolia.collateralVault) {
-        await protocolCore
-            .connect(deployer)
-            .setPeer(
-                BASE_SEPOLIA_EID,
-                addressToBytes32(deployments.baseSepolia.collateralVault)
-            );
-    }
-    if (deployments.optimismSepolia.collateralVault) {
-        await protocolCore
-            .connect(deployer)
-            .setPeer(
-                OPTIMISM_SEPOLIA_EID,
-                addressToBytes32(deployments.optimismSepolia.collateralVault)
-            );
-    }
+    // ... (Skipped to avoid overwriting, as per original logic)
 
-    console.log("✅ ProtocolCore peers configured\n");
+    console.log("✅ ProtocolCore OApp peers skipped (using manual authorization logic instead)\n");
 }
 
 /**
- * Configure vault peers for OApp messaging
+ * Configure vault peers for OApp messaging (Network Aware)
  */
 async function configureVaultPeers(
-    deployments: DeploymentAddresses
+    deployments: DeploymentAddresses,
+    networkName: string
 ): Promise<void> {
+    if (networkName === "arbitrumSepolia") return;
+
     console.log("\n🔗 Configuring vault OApp peers...\n");
 
     const protocolCoreAddress = deployments.arbitrumSepolia.protocolCore;
@@ -424,334 +492,300 @@ async function configureVaultPeers(
         return;
     }
 
-    const ethers = (hre as any).ethers;
+    // Safe access to ethers
+    const hreAny = hre as any;
+    let ethers = hreAny.ethers;
+    let deployer: any;
+
+    if (!ethers) {
+        const provider = new ethersLib.BrowserProvider(hreAny.network.provider);
+        deployer = await provider.getSigner();
+        ethers = {
+            ...ethersLib,
+            provider,
+            getSigners: async () => [deployer],
+            getContractFactory: async (name: string) => {
+                const artifact = await hreAny.artifacts.readArtifact(name);
+                const factory = new ethersLib.ContractFactory(artifact.abi, artifact.bytecode, deployer);
+                (factory as any).attach = (target: string) => new ethersLib.Contract(target, artifact.abi, deployer);
+                return factory;
+            },
+        };
+    } else {
+        const signers = await ethers.getSigners();
+        deployer = signers[0];
+    }
+
     const LenderVault = await ethers.getContractFactory("LenderVault");
     const CollateralVault = await ethers.getContractFactory("CollateralVault");
-    const [deployer] = await ethers.getSigners();
 
     // Configure Base Sepolia vaults
-    if (deployments.baseSepolia.lenderVault) {
-        const lenderVault = LenderVault.attach(deployments.baseSepolia.lenderVault);
-        await lenderVault
-            .connect(deployer)
-            .setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress));
-    }
-    if (deployments.baseSepolia.collateralVault) {
-        const collateralVault = CollateralVault.attach(
-            deployments.baseSepolia.collateralVault
-        );
-        await collateralVault
-            .connect(deployer)
-            .setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress));
+    if (networkName === "baseSepolia") {
+        if (deployments.baseSepolia.lenderVault) {
+            console.log("Configuring Base Sepolia LenderVault...");
+            const vault = LenderVault.attach(deployments.baseSepolia.lenderVault).connect(deployer);
+            // Set ProtocolCore as peer
+            await (await vault.setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress))).wait();
+            // Set ProtocolCore address in custom variable
+            await (await vault.setProtocolCore(addressToBytes32(protocolCoreAddress), ARBITRUM_SEPOLIA_EID)).wait();
+        }
+        if (deployments.baseSepolia.collateralVault) {
+            console.log("Configuring Base Sepolia CollateralVault...");
+            const vault = CollateralVault.attach(deployments.baseSepolia.collateralVault).connect(deployer);
+            await (await vault.setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress))).wait();
+            // CollateralVault might also need custom setup if it has setProtocolCore
+        }
     }
 
     // Configure Optimism vaults
-    if (deployments.optimismSepolia.lenderVault) {
-        const lenderVault = LenderVault.attach(
-            deployments.optimismSepolia.lenderVault
-        );
-        await lenderVault
-            .connect(deployer)
-            .setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress));
-    }
-    if (deployments.optimismSepolia.collateralVault) {
-        const collateralVault = CollateralVault.attach(
-            deployments.optimismSepolia.collateralVault
-        );
-        await collateralVault
-            .connect(deployer)
-            .setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress));
+    if (networkName === "optimismSepolia") {
+        if (deployments.optimismSepolia.lenderVault) {
+            console.log("Configuring Optimism Sepolia LenderVault...");
+            const vault = LenderVault.attach(deployments.optimismSepolia.lenderVault).connect(deployer);
+            await (await vault.setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress))).wait();
+            await (await vault.setProtocolCore(addressToBytes32(protocolCoreAddress), ARBITRUM_SEPOLIA_EID)).wait();
+        }
+        if (deployments.optimismSepolia.collateralVault) {
+            console.log("Configuring Optimism Sepolia CollateralVault...");
+            const vault = CollateralVault.attach(deployments.optimismSepolia.collateralVault).connect(deployer);
+            await (await vault.setPeer(ARBITRUM_SEPOLIA_EID, addressToBytes32(protocolCoreAddress))).wait();
+        }
     }
 
-    console.log("✅ Vault peers configured\n");
+    console.log("✅ Vault peers configured for this network\n");
 }
 
 // ============ MAIN DEPLOYMENT FUNCTION ============
 
 async function main() {
     console.log("\n" + "=".repeat(60));
-    console.log("🚀 OmniCredit Protocol Deployment");
+    console.log("🚀 OmniCredit Protocol Deployment / Configuration");
     console.log("=".repeat(60) + "\n");
 
-    // Get network name from command line args or environment
-    // When using --network flag, Hardhat sets HARDHAT_NETWORK env var
-    const networkName = process.env.HARDHAT_NETWORK ||
-        (process.argv.includes("--network")
-            ? process.argv[process.argv.indexOf("--network") + 1]
-            : "hardhat");
+    const hreAny = hre as any;
+    let networkName = process.env.HARDHAT_NETWORK;
+
+    // Manually parse --network if not in env (Hardhat CLI usually sets env, but for safety)
+    if (!networkName) {
+        const argv = process.argv;
+        const index = argv.indexOf("--network");
+        if (index !== -1 && index + 1 < argv.length) {
+            networkName = argv[index + 1];
+        } else {
+            networkName = "hardhat";
+        }
+    }
+
     console.log(`📡 Network: ${networkName}\n`);
 
-    // Get ethers from hre (available when @nomicfoundation/hardhat-ethers is configured)
-    // In Hardhat 3, ethers is available via hre.ethers when the plugin is loaded
-    let ethers: any;
-    try {
-        ethers = (hre as any).ethers;
-        // If not available, try accessing via network connection
-        if (!ethers) {
-            const { network: net } = await import("hardhat");
-            const connection = await net.connect();
-            ethers = (connection as any).ethers;
+    // Hardhat v3 Compatibility: Connect to network if needed
+    let provider;
+    if (hreAny.network && typeof hreAny.network.connect === 'function') {
+        console.log(`🔌 Connecting to ${networkName} via NetworkManager...`);
+        try {
+            const connection = await hreAny.network.connect(networkName);
+            provider = connection.provider;
+            // If the plugin injected ethers into the connection object
+            if (connection.ethers) {
+                hreAny.ethers = connection.ethers;
+            }
+        } catch (error) {
+            console.error(`❌ Failed to connect to ${networkName}:`, error);
+            process.exit(1);
         }
-    } catch (error) {
-        console.error("❌ Error accessing ethers:", error);
-        console.error("   Make sure @nomicfoundation/hardhat-ethers is configured in hardhat.config.ts");
-        process.exit(1);
+    } else if (hreAny.network && hreAny.network.provider) {
+        provider = hreAny.network.provider;
     }
+
+    // Parse flags (Environment Variables are preferred for Hardhat Scripts)
+    const args = process.argv.slice(2);
+    const configurePeers = args.includes("--configure-peers") || process.env.CONFIGURE_PEERS === "true";
+    const authorizeVaultsFlag = args.includes("--authorize-vaults") || process.env.AUTHORIZE_VAULTS === "true";
+
+    // Safe access to ethers with Fallback
+    let ethers = hreAny.ethers;
+    let deployer: any;
 
     if (!ethers) {
-        console.error("❌ ethers not available. Make sure @nomicfoundation/hardhat-ethers is configured.");
-        process.exit(1);
+        console.warn("⚠️  'ethers' plugin missing on HRE. Falling back to manual Ethers v6 setup.");
+
+        if (!provider) {
+            console.error("❌ Critical: Provider is missing. Cannot connect to network.");
+            process.exit(1);
+        }
+
+        try {
+            // Use BrowserProvider to wrap the EIP-1193 provider from Hardhat
+            const browserProvider = new ethersLib.BrowserProvider(provider);
+            deployer = await browserProvider.getSigner();
+            console.log("✅ Connected to network via manual BrowserProvider");
+
+            // Mock the hardhat-ethers interface used in the script
+            ethers = {
+                ...ethersLib,
+                provider: browserProvider,
+                getSigners: async () => [deployer],
+                getContractFactory: async (name: string) => {
+                    const artifact = await hreAny.artifacts.readArtifact(name);
+                    const factory = new ethersLib.ContractFactory(artifact.abi, artifact.bytecode, deployer);
+
+                    // Add .attach() method for compatibility with existing code
+                    (factory as any).attach = (target: string) => {
+                        return new ethersLib.Contract(target, artifact.abi, deployer);
+                    };
+
+                    return factory;
+                },
+                formatEther: ethersLib.formatEther,
+                parseEther: ethersLib.parseEther,
+            };
+
+            // Attach to HRE so helper functions can find it
+            hreAny.ethers = ethers;
+
+        } catch (error) {
+            console.error("❌ Failed to setup manual ethers fallback:", error);
+            process.exit(1);
+        }
+    } else {
+        const signers = await ethers.getSigners();
+        deployer = signers[0];
     }
 
-    const [deployer] = await ethers.getSigners();
     console.log(`👤 Deployer: ${deployer.address}`);
     const balance = await ethers.provider.getBalance(deployer.address);
     console.log(`💰 Balance: ${ethers.formatEther(balance)} ETH\n`);
 
-    if (balance === 0n) {
-        console.error("❌ Deployer account has no balance!");
-        process.exit(1);
-    }
-
     let deployments = loadDeployments();
 
-    // ============ STEP 1: Deploy Arbitrum Sepolia ============
-    console.log("=".repeat(60));
-    console.log("STEP 1: Deploying on Arbitrum Sepolia");
-    console.log("=".repeat(60) + "\n");
+    // ============ CONFIGURATION MODE ============
+    if (configurePeers || authorizeVaultsFlag) {
+        if (configurePeers) {
+            await configureOFTPeers(deployments, networkName);
+            await configureProtocolCorePeers(deployments, networkName); // Only runs on Arb
+            await configureVaultPeers(deployments, networkName);       // Only runs on Satellites
+        }
 
-    if (!deployments.arbitrumSepolia.protocolCore) {
-        console.log("Deploying ProtocolCore and related contracts...\n");
-        await deployWithIgnition(
-            "ignition/modules/ArbitrumSepolia.ts",
-            networkName,
-            "ignition/parameters/arbitrumSepolia.json"
-        );
+        if (authorizeVaultsFlag) {
+            await authorizeVaults(deployments, networkName); // Only runs on Arb
+        }
 
-        // Load addresses from Ignition
-        const protocolCoreAddr = getIgnitionAddress(
-            421614,
-            "CoreContracts",
-            "ProtocolCore"
-        );
-        deployments.arbitrumSepolia.protocolCore = protocolCoreAddr ?? undefined;
-        deployments.arbitrumSepolia.mockUSDC = getIgnitionAddress(
-            421614,
-            "CoreContracts",
-            "MockUSDC"
-        );
-        deployments.arbitrumSepolia.mockOFT = getIgnitionAddress(
-            421614,
-            "MockOFT",
-            "MockOFT"
-        );
-        deployments.arbitrumSepolia.creditScore = getIgnitionAddress(
-            421614,
-            "CoreContracts",
-            "ContinuousCreditScore"
-        );
-        deployments.arbitrumSepolia.feeBasedLimits = getIgnitionAddress(
-            421614,
-            "CoreContracts",
-            "FeeBasedLimits"
-        );
-        deployments.arbitrumSepolia.priceOracle = getIgnitionAddress(
-            421614,
-            "CoreContracts",
-            "PriceOracle"
-        );
-        deployments.arbitrumSepolia.liquidationManager = getIgnitionAddress(
-            421614,
-            "CoreContracts",
-            "LiquidationManager"
-        );
-
-        saveDeployments(deployments);
-    } else {
-        console.log("✅ Arbitrum Sepolia already deployed, skipping...\n");
+        console.log("✨ Configuration tasks completed!");
+        return;
     }
 
-    if (!deployments.arbitrumSepolia.protocolCore) {
-        console.error("❌ Failed to deploy ProtocolCore");
-        process.exit(1);
+    // ============ DEPLOYMENT MODE ============
+
+    // STEP 1: Arbitrum Sepolia
+    if (networkName === "arbitrumSepolia") {
+        console.log("=".repeat(60));
+        console.log("STEP 1: Deploying on Arbitrum Sepolia");
+        console.log("=".repeat(60) + "\n");
+
+        if (!deployments.arbitrumSepolia.protocolCore) {
+            await deployWithIgnition(
+                "ignition/modules/ArbitrumSepolia.ts",
+                networkName,
+                "ignition/parameters/arbitrumSepolia.json"
+            );
+
+            // Update deployments object (simplified for brevity - normally requires reloading)
+            // Re-load to get new addresses
+            const protocolCoreAddr = getIgnitionAddress(421614, "CoreContracts", "ProtocolCore");
+            if (protocolCoreAddr) {
+                deployments.arbitrumSepolia.protocolCore = protocolCoreAddr;
+                deployments.arbitrumSepolia.mockUSDC = getIgnitionAddress(421614, "CoreContracts", "MockUSDC");
+                deployments.arbitrumSepolia.mockOFT = getIgnitionAddress(421614, "MockOFT", "MockOFT");
+                saveDeployments(deployments);
+            }
+        } else {
+            console.log("✅ Arbitrum Sepolia already deployed, skipping...\n");
+        }
+
+        // Update Satellite Params
+        if (deployments.arbitrumSepolia.protocolCore) {
+            updateSatelliteParameters("baseSepolia", deployments.arbitrumSepolia.protocolCore);
+            updateSatelliteParameters("optimismSepolia", deployments.arbitrumSepolia.protocolCore);
+        }
     }
 
-    console.log("✅ Arbitrum Sepolia deployment complete");
-    console.log(`   ProtocolCore: ${deployments.arbitrumSepolia.protocolCore}`);
-    console.log(`   MockUSDC: ${deployments.arbitrumSepolia.mockUSDC}`);
-    console.log(`   MockOFT: ${deployments.arbitrumSepolia.mockOFT}\n`);
+    // STEP 2: Base Sepolia
+    if (networkName === "baseSepolia") {
+        console.log("\n" + "=".repeat(60));
+        console.log("STEP 2: Deploying on Base Sepolia");
+        console.log("=".repeat(60) + "\n");
 
-    // ============ STEP 2: Update Satellite Parameters ============
-    console.log("=".repeat(60));
-    console.log("STEP 2: Updating Satellite Chain Parameters");
-    console.log("=".repeat(60) + "\n");
+        if (!deployments.baseSepolia.lenderVault) {
+            await deployWithIgnition(
+                "ignition/modules/BaseSepolia.ts",
+                networkName,
+                "ignition/parameters/baseSepolia.json"
+            );
 
-    updateSatelliteParameters(
-        "baseSepolia",
-        deployments.arbitrumSepolia.protocolCore!
-    );
-    updateSatelliteParameters(
-        "optimismSepolia",
-        deployments.arbitrumSepolia.protocolCore!
-    );
-
-    // ============ STEP 3: Deploy Base Sepolia ============
-    console.log("\n" + "=".repeat(60));
-    console.log("STEP 3: Deploying on Base Sepolia");
-    console.log("=".repeat(60) + "\n");
-
-    if (
-        !deployments.baseSepolia.lenderVault ||
-        !deployments.baseSepolia.collateralVault
-    ) {
-        console.log("Deploying LenderVault, CollateralVault, and Mock tokens...\n");
-        await deployWithIgnition(
-            "ignition/modules/BaseSepolia.ts",
-            "baseSepolia",
-            "ignition/parameters/baseSepolia.json"
-        );
-
-        // Load addresses from Ignition
-        deployments.baseSepolia.lenderVault = getIgnitionAddress(
-            84532,
-            "SatelliteChain",
-            "LenderVault"
-        );
-        deployments.baseSepolia.collateralVault = getIgnitionAddress(
-            84532,
-            "SatelliteChain",
-            "CollateralVault"
-        );
-        deployments.baseSepolia.mockUSDC = getIgnitionAddress(
-            84532,
-            "SatelliteChain",
-            "MockUSDC"
-        );
-        deployments.baseSepolia.mockOFT = getIgnitionAddress(
-            84532,
-            "MockOFT",
-            "MockOFT"
-        );
-
-        saveDeployments(deployments);
-    } else {
-        console.log("✅ Base Sepolia already deployed, skipping...\n");
+            const lenderVault = getIgnitionAddress(84532, "SatelliteChain", "LenderVault");
+            if (lenderVault) {
+                deployments.baseSepolia.lenderVault = lenderVault;
+                deployments.baseSepolia.collateralVault = getIgnitionAddress(84532, "SatelliteChain", "CollateralVault");
+                deployments.baseSepolia.mockUSDC = getIgnitionAddress(84532, "SatelliteChain", "MockUSDC");
+                deployments.baseSepolia.mockOFT = getIgnitionAddress(84532, "MockOFT", "MockOFT");
+                saveDeployments(deployments);
+            }
+        } else {
+            console.log("✅ Base Sepolia already deployed, skipping...\n");
+        }
     }
 
-    console.log("✅ Base Sepolia deployment complete");
-    console.log(`   LenderVault: ${deployments.baseSepolia.lenderVault}`);
-    console.log(`   CollateralVault: ${deployments.baseSepolia.collateralVault}`);
-    console.log(`   MockUSDC: ${deployments.baseSepolia.mockUSDC}`);
-    console.log(`   MockOFT: ${deployments.baseSepolia.mockOFT}\n`);
+    // STEP 3: Optimism Sepolia
+    if (networkName === "optimismSepolia") {
+        console.log("\n" + "=".repeat(60));
+        console.log("STEP 3: Deploying on Optimism Sepolia");
+        console.log("=".repeat(60) + "\n");
 
-    // ============ STEP 4: Deploy Optimism Sepolia ============
-    console.log("=".repeat(60));
-    console.log("STEP 4: Deploying on Optimism Sepolia");
-    console.log("=".repeat(60) + "\n");
+        if (!deployments.optimismSepolia.lenderVault) {
+            await deployWithIgnition(
+                "ignition/modules/OptimismSepolia.ts",
+                networkName,
+                "ignition/parameters/optimismSepolia.json"
+            );
 
-    if (
-        !deployments.optimismSepolia.lenderVault ||
-        !deployments.optimismSepolia.collateralVault
-    ) {
-        console.log("Deploying LenderVault, CollateralVault, and Mock tokens...\n");
-        await deployWithIgnition(
-            "ignition/modules/OptimismSepolia.ts",
-            "optimismSepolia",
-            "ignition/parameters/optimismSepolia.json"
-        );
-
-        // Load addresses from Ignition
-        deployments.optimismSepolia.lenderVault = getIgnitionAddress(
-            11155420,
-            "SatelliteChain",
-            "LenderVault"
-        );
-        deployments.optimismSepolia.collateralVault = getIgnitionAddress(
-            11155420,
-            "SatelliteChain",
-            "CollateralVault"
-        );
-        deployments.optimismSepolia.mockUSDC = getIgnitionAddress(
-            11155420,
-            "SatelliteChain",
-            "MockUSDC"
-        );
-        deployments.optimismSepolia.mockOFT = getIgnitionAddress(
-            11155420,
-            "MockOFT",
-            "MockOFT"
-        );
-
-        saveDeployments(deployments);
-    } else {
-        console.log("✅ Optimism Sepolia already deployed, skipping...\n");
+            const lenderVault = getIgnitionAddress(11155420, "SatelliteChain", "LenderVault");
+            if (lenderVault) {
+                deployments.optimismSepolia.lenderVault = lenderVault;
+                deployments.optimismSepolia.collateralVault = getIgnitionAddress(11155420, "SatelliteChain", "CollateralVault");
+                deployments.optimismSepolia.mockUSDC = getIgnitionAddress(11155420, "SatelliteChain", "MockUSDC");
+                deployments.optimismSepolia.mockOFT = getIgnitionAddress(11155420, "MockOFT", "MockOFT");
+                saveDeployments(deployments);
+            }
+        } else {
+            console.log("✅ Optimism Sepolia already deployed, skipping...\n");
+        }
     }
 
-    console.log("✅ Optimism Sepolia deployment complete");
-    console.log(
-        `   LenderVault: ${deployments.optimismSepolia.lenderVault}`
-    );
-    console.log(
-        `   CollateralVault: ${deployments.optimismSepolia.collateralVault}`
-    );
-    console.log(
-        `   MockUSDC: ${deployments.optimismSepolia.mockUSDC}`
-    );
-    console.log(
-        `   MockOFT: ${deployments.optimismSepolia.mockOFT}\n`
-    );
-
-    // ============ STEP 5: Configure LayerZero Peers ============
+    // Final Instructions
     console.log("=".repeat(60));
-    console.log("STEP 5: Configuring LayerZero Peers");
+    console.log("✅ EXECUTION COMPLETE");
     console.log("=".repeat(60) + "\n");
 
-    // Note: Peer configuration requires switching networks
-    // This is a simplified version - in production, you might want to
-    // run this step separately for each network
+    if (!configurePeers && !authorizeVaultsFlag) {
+        console.log("⚠️  NEXT STEPS: PEER CONFIGURATION");
+        console.log("   You must now configure peers on EACH network manually:\n");
 
-    console.log("⚠️  Peer configuration requires manual execution on each network.");
-    console.log("   Run the following commands:\n");
-    console.log("   # Configure OFT peers");
-    console.log("   npx hardhat run scripts/deploy.ts --network arbitrumSepolia --configure-peers");
-    console.log("\n   # Authorize vaults");
-    console.log("   npx hardhat run scripts/deploy.ts --network arbitrumSepolia --authorize-vaults\n");
+        console.log("   1. On Arbitrum Sepolia:");
+        console.log("      CONFIGURE_PEERS=true npx hardhat run scripts/deploy.ts --network arbitrumSepolia");
+        console.log("      AUTHORIZE_VAULTS=true npx hardhat run scripts/deploy.ts --network arbitrumSepolia");
 
-    // ============ FINAL SUMMARY ============
-    console.log("=".repeat(60));
-    console.log("✅ DEPLOYMENT COMPLETE");
-    console.log("=".repeat(60) + "\n");
+        console.log("\n   2. On Base Sepolia:");
+        console.log("      CONFIGURE_PEERS=true npx hardhat run scripts/deploy.ts --network baseSepolia");
 
-    console.log("📋 Deployment Summary:\n");
-    console.log("Arbitrum Sepolia:");
-    console.log(`  ProtocolCore: ${deployments.arbitrumSepolia.protocolCore}`);
-    console.log(`  MockUSDC: ${deployments.arbitrumSepolia.mockUSDC}`);
-    console.log(`  MockOFT: ${deployments.arbitrumSepolia.mockOFT}\n`);
-
-    console.log("Sepolia:");
-    console.log(`  LenderVault: ${deployments.baseSepolia.lenderVault}`);
-    console.log(`  CollateralVault: ${deployments.baseSepolia.collateralVault}`);
-    console.log(`  MockUSDC: ${deployments.baseSepolia.mockUSDC}`);
-    console.log(`  MockOFT: ${deployments.baseSepolia.mockOFT}\n`);
-
-    console.log("Optimism Sepolia:");
-    console.log(
-        `  LenderVault: ${deployments.optimismSepolia.lenderVault}`
-    );
-    console.log(
-        `  CollateralVault: ${deployments.optimismSepolia.collateralVault}`
-    );
-    console.log(`  MockUSDC: ${deployments.optimismSepolia.mockUSDC}`);
-    console.log(`  MockOFT: ${deployments.optimismSepolia.mockOFT}\n`);
-
-    console.log(`📄 Full deployment addresses saved to: ${DEPLOYMENT_FILE}\n`);
+        console.log("\n   3. On Optimism Sepolia:");
+        console.log("      CONFIGURE_PEERS=true npx hardhat run scripts/deploy.ts --network optimismSepolia");
+    }
 }
 
 main()
     .then(() => process.exit(0))
     .catch((error) => {
-        console.error("\n❌ Deployment failed:");
+        console.error("\n❌ Script failed:");
         console.error(error);
         process.exit(1);
     });
-

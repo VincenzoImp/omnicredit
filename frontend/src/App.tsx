@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { Toaster } from 'react-hot-toast';
 import { config } from './wagmi';
-import ImprovedDashboard from './components/ImprovedDashboard';
+import Dashboard from './components/Dashboard';
 import '@rainbow-me/rainbowkit/styles.css';
 import './index.css';
 
@@ -40,7 +40,7 @@ function App() {
               },
             }}
           />
-          <ImprovedDashboard />
+          <Dashboard />
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

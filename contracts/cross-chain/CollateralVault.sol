@@ -130,6 +130,93 @@ contract CollateralVault is OApp, ReentrancyGuard {
     }
 
     /**
+     * @notice Deposit native ETH as collateral and request a borrow in one transaction
+     * @param borrowAmount Amount of USDC to borrow (6 decimals)
+     * @param dstEid Destination endpoint ID for the borrowed funds
+     * @param minAmountLD Minimum amount to receive on destination
+     */
+    function depositNativeAndBorrow(
+        uint256 borrowAmount,
+        uint32 dstEid,
+        uint256 minAmountLD
+    ) external payable nonReentrant {
+        if (msg.value == 0) revert InvalidAmount();
+        if (borrowAmount == 0) revert InvalidAmount();
+        
+        uint8 decimals = assetDecimals[NATIVE_TOKEN];
+        if (decimals == 0) revert DecimalsNotSet(NATIVE_TOKEN);
+
+        // Calculate value with trusted oracle
+        uint256 valueUSD18 = priceOracle.getAssetValueUSD(NATIVE_TOKEN, msg.value, decimals);
+        // Convert to 6 decimals for coordinator
+        uint256 valueUSD6 = valueUSD18 / 1e12;
+
+        // Update balances
+        userCollateral[msg.sender][NATIVE_TOKEN] += msg.value;
+        totalCollateralLocked[NATIVE_TOKEN] += msg.value;
+
+        emit CollateralDeposited(msg.sender, NATIVE_TOKEN, msg.value, valueUSD6);
+
+        // Send cross-chain message to ProtocolCore on Arbitrum Sepolia
+        // messageType 4 = DEPOSIT_AND_BORROW
+        _sendDepositAndBorrow(
+            msg.sender, 
+            NATIVE_TOKEN, 
+            msg.value, 
+            valueUSD6, 
+            borrowAmount, 
+            dstEid, 
+            minAmountLD
+        );
+    }
+
+    /**
+     * @notice Send deposit and borrow message to ProtocolCore
+     */
+    function _sendDepositAndBorrow(
+        address user,
+        address asset,
+        uint256 amount,
+        uint256 valueUSD,
+        uint256 borrowAmount,
+        uint32 dstEid,
+        uint256 minAmountLD
+    ) internal {
+        if (protocolCorePeer == bytes32(0) || protocolCoreEid == 0) revert InvalidProtocolCore();
+
+        // Encode message payload: (messageType, user, asset, amount, valueUSD, borrowAmount, dstEid, minAmountLD)
+        // messageType = 4 for DEPOSIT_AND_BORROW
+        bytes memory payload = abi.encode(
+            uint8(4), 
+            user, 
+            asset, 
+            amount, 
+            valueUSD, 
+            borrowAmount, 
+            dstEid, 
+            minAmountLD
+        );
+
+        // Build LayerZero options (500k gas for lzReceive + OFT execution on destination)
+        bytes memory options = OptionsBuilder.newOptions();
+        options.addExecutorLzReceiveOption(500000, 0);
+
+        // Quote fee
+        MessagingFee memory fee = _quote(protocolCoreEid, payload, options, false);
+
+        // Send message (requires msg.value to cover fee)
+        _lzSend(
+            protocolCoreEid,
+            payload,
+            options,
+            fee,
+            payable(address(this)) // Refund to vault
+        );
+
+        emit CollateralMessageSent(user, valueUSD, bytes32(0));
+    }
+
+    /**
      * @notice Deposit native ETH as collateral
      */
     function depositNative() external payable nonReentrant {
