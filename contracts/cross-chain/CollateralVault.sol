@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.9.0;
+pragma solidity ^0.8.28;
 
 import {OApp, Origin, MessagingFee} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import {OptionsBuilder} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/libs/OptionsBuilder.sol";
@@ -17,22 +17,23 @@ interface IPriceOracle {
 
 /**
  * @title CollateralVault
- * @notice Locks collateral on source chains and sends messages to Base coordinator
- * @dev Deployed on Ethereum, Arbitrum, Optimism - anywhere users want to deposit collateral
+ * @notice Locks collateral on source chains and sends messages to ProtocolCore on Arbitrum Sepolia
+ * @dev Deployed on Sepolia, Optimism Sepolia - anywhere users want to deposit native tokens
  *
  * Cross-Chain Flow:
- * 1. User deposits ETH/WETH/other assets into CollateralVault
- * 2. Vault locks collateral and sends LayerZero message to Base
- * 3. CrossChainCoordinator on Base receives message and updates collateral credit
- * 4. User can borrow against their collateral on Base
- * 5. To withdraw: User repays loan on Base → message sent to Vault → collateral unlocked
+ * 1. User deposits native token (ETH, MATIC, etc.) into CollateralVault
+ * 2. Vault locks collateral and sends LayerZero message to Arbitrum Sepolia
+ * 3. ProtocolCore on Arbitrum receives message and updates borrower collateral
+ * 4. User can borrow MockUSDC on any chain against their collateral
+ * 5. To withdraw: User repays loan on Arbitrum → message sent to Vault → collateral unlocked
  */
 contract CollateralVault is OApp, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using OptionsBuilder for bytes;
 
-    // Coordinator endpoint ID (Base Sepolia)
-    uint32 public coordinatorEid;
+    // ProtocolCore endpoint ID (Arbitrum Sepolia)
+    uint32 public protocolCoreEid;
+    bytes32 public protocolCorePeer;
 
     // User collateral balances
     // user => asset => amount
@@ -72,7 +73,7 @@ contract CollateralVault is OApp, ReentrancyGuard {
         uint256 valueUSD,
         bytes32 guid
     );
-    event CoordinatorEidUpdated(uint32 oldEid, uint32 newEid);
+    event ProtocolCoreUpdated(bytes32 peer, uint32 eid);
     event PriceOracleUpdated(address oldOracle, address newOracle);
     event AssetDecimalsSet(address indexed asset, uint8 decimals);
 
@@ -80,7 +81,7 @@ contract CollateralVault is OApp, ReentrancyGuard {
     error InvalidAmount();
     error InvalidAsset();
     error InsufficientCollateral();
-    error InvalidCoordinatorEid();
+    error InvalidProtocolCore();
     error InvalidPriceOracle();
     error DecimalsNotSet(address asset);
 
@@ -88,16 +89,11 @@ contract CollateralVault is OApp, ReentrancyGuard {
      * @notice Constructor
      * @param _endpoint LayerZero V2 endpoint on this chain
      * @param _delegate Owner/delegate address
-     * @param _coordinatorEid Endpoint ID of Base Sepolia (where coordinator lives)
      */
     constructor(
         address _endpoint,
-        address _delegate,
-        uint32 _coordinatorEid
-    ) OApp(_endpoint, _delegate) {
-        if (_coordinatorEid == 0) revert InvalidCoordinatorEid();
-        coordinatorEid = _coordinatorEid;
-    }
+        address _delegate
+    ) OApp(_endpoint, _delegate) {}
 
     /**
      * @notice Set the price oracle address
@@ -111,9 +107,21 @@ contract CollateralVault is OApp, ReentrancyGuard {
     }
 
     /**
+     * @notice Set ProtocolCore peer on Arbitrum Sepolia
+     * @param _peer ProtocolCore address as bytes32
+     * @param _eid Arbitrum Sepolia endpoint ID
+     */
+    function setProtocolCore(bytes32 _peer, uint32 _eid) external onlyOwner {
+        if (_peer == bytes32(0) || _eid == 0) revert InvalidProtocolCore();
+        protocolCorePeer = _peer;
+        protocolCoreEid = _eid;
+        emit ProtocolCoreUpdated(_peer, _eid);
+    }
+
+    /**
      * @notice Set the decimals for a supported collateral asset
      * @param asset Address of the asset
-     * @param decimals The asset's decimals (e.g., 18 for WETH, 6 for USDC)
+     * @param decimals The asset's decimals (e.g., 18 for ETH, 18 for MATIC)
      */
     function setAssetDecimals(address asset, uint8 decimals) external onlyOwner {
         if (asset == address(0)) revert InvalidAsset();
@@ -141,8 +149,8 @@ contract CollateralVault is OApp, ReentrancyGuard {
 
         emit CollateralDeposited(msg.sender, NATIVE_TOKEN, msg.value, valueUSD6);
 
-        // Send cross-chain message to coordinator on Base
-        _sendCollateralUpdate(msg.sender, valueUSD6, true);
+        // Send cross-chain message to ProtocolCore on Arbitrum Sepolia
+        _sendCollateralUpdate(msg.sender, NATIVE_TOKEN, msg.value, valueUSD6, true);
     }
 
     /**
@@ -174,8 +182,8 @@ contract CollateralVault is OApp, ReentrancyGuard {
 
         emit CollateralDeposited(msg.sender, asset, amount, valueUSD6);
 
-        // Send cross-chain message to coordinator on Base
-        _sendCollateralUpdate(msg.sender, valueUSD6, true);
+        // Send cross-chain message to ProtocolCore on Arbitrum Sepolia
+        _sendCollateralUpdate(msg.sender, asset, amount, valueUSD6, true);
     }
 
     /**
@@ -205,10 +213,10 @@ contract CollateralVault is OApp, ReentrancyGuard {
     }
 
     /**
-     * @notice Receive messages from coordinator (for withdrawal approvals)
+     * @notice Receive messages from ProtocolCore (for withdrawal approvals)
      * @param _origin Origin information
      * @param _message Encoded message
-     * @dev This allows coordinator on Base to approve collateral withdrawals
+     * @dev This allows ProtocolCore on Arbitrum to approve collateral withdrawals
      */
     function _lzReceive(
         Origin calldata _origin,
@@ -217,8 +225,8 @@ contract CollateralVault is OApp, ReentrancyGuard {
         address /* _executor */,
         bytes calldata /* _extraData */
     ) internal override {
-        // Verify message is from coordinator
-        require(_origin.srcEid == coordinatorEid, "Invalid source");
+        // Verify message is from ProtocolCore on Arbitrum
+        require(_origin.srcEid == protocolCoreEid && _origin.sender == protocolCorePeer, "Invalid source");
 
         // Decode withdrawal approval message
         (uint8 messageType, address user, address asset, uint256 amount) = abi.decode(
@@ -226,7 +234,7 @@ contract CollateralVault is OApp, ReentrancyGuard {
             (uint8, address, address, uint256)
         );
 
-        // messageType 1 = collateral deposit confirmation (handled by coordinator)
+        // messageType 1 = collateral deposit confirmation (handled by ProtocolCore)
         // messageType 2 = withdrawal approval (after loan repaid)
         if (messageType == 2) {
             // Increase user's allowance for withdrawal
@@ -236,16 +244,6 @@ contract CollateralVault is OApp, ReentrancyGuard {
     }
 
 
-    /**
-     * @notice Update coordinator endpoint ID
-     * @param newEid New coordinator EID
-     */
-    function setCoordinatorEid(uint32 newEid) external onlyOwner {
-        if (newEid == 0) revert InvalidCoordinatorEid();
-        uint32 oldEid = coordinatorEid;
-        coordinatorEid = newEid;
-        emit CoordinatorEidUpdated(oldEid, newEid);
-    }
 
     /**
      * @notice Get user's total collateral for an asset
@@ -262,30 +260,36 @@ contract CollateralVault is OApp, ReentrancyGuard {
     }
 
     /**
-     * @notice Send collateral update message to coordinator on Base
+     * @notice Send collateral update message to ProtocolCore on Arbitrum Sepolia
      * @param user Address of the user
+     * @param asset Address of the collateral asset
+     * @param amount Amount of collateral
      * @param valueUSD USD value of the collateral change (6 decimals)
      * @param isDeposit True for deposit, false for withdrawal
      */
     function _sendCollateralUpdate(
         address user,
+        address asset,
+        uint256 amount,
         uint256 valueUSD,
         bool isDeposit
     ) internal {
-        // Encode message payload
-        bytes memory payload = abi.encode(user, valueUSD, isDeposit);
+        if (protocolCorePeer == bytes32(0) || protocolCoreEid == 0) revert InvalidProtocolCore();
+
+        // Encode message payload: (user, asset, amount, valueUSD, isDeposit)
+        bytes memory payload = abi.encode(user, asset, amount, valueUSD, isDeposit);
 
         // Build LayerZero options (200k gas for lzReceive on destination)
         bytes memory options = OptionsBuilder.newOptions();
         options.addExecutorLzReceiveOption(200000, 0);
 
         // Quote fee
-        MessagingFee memory fee = _quote(coordinatorEid, payload, options, false);
+        MessagingFee memory fee = _quote(protocolCoreEid, payload, options, false);
 
         // Send message (requires msg.value to cover fee)
         // In production, user should send extra ETH to cover LayerZero fees
         _lzSend(
-            coordinatorEid,
+            protocolCoreEid,
             payload,
             options,
             fee,
@@ -298,19 +302,23 @@ contract CollateralVault is OApp, ReentrancyGuard {
     /**
      * @notice Quote LayerZero fee for sending collateral update
      * @param user Address of the user
+     * @param asset Address of the collateral asset
+     * @param amount Amount of collateral
      * @param valueUSD USD value of the collateral change
      * @param isDeposit True for deposit, false for withdrawal
      * @return fee MessagingFee struct with nativeFee and lzTokenFee
      */
     function quoteCollateralUpdate(
         address user,
+        address asset,
+        uint256 amount,
         uint256 valueUSD,
         bool isDeposit
     ) external view returns (MessagingFee memory fee) {
-        bytes memory payload = abi.encode(user, valueUSD, isDeposit);
+        bytes memory payload = abi.encode(user, asset, amount, valueUSD, isDeposit);
         bytes memory options = OptionsBuilder.newOptions();
         options.addExecutorLzReceiveOption(200000, 0);
-        fee = _quote(coordinatorEid, payload, options, false);
+        fee = _quote(protocolCoreEid, payload, options, false);
     }
 
     /**

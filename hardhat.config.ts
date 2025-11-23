@@ -24,7 +24,6 @@ const config = {
       type: "edr-simulated",
       chainId: 31337,
     },
-
     arbitrumSepolia: {
       type: "http",
       url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
@@ -36,6 +35,12 @@ const config = {
       url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 11155111,
+    },
+    optimismSepolia: {
+      type: "http",
+      url: process.env.OPTIMISM_SEPOLIA_RPC_URL || "https://sepolia.optimism.io",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: 11155420,
     },
   },
 

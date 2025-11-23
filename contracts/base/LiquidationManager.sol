@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.9.0;
+pragma solidity ^0.8.28;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -102,7 +102,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
     ) {
         priceOracle = PriceOracle(_priceOracle);
         creditScore = ContinuousCreditScore(_creditScore);
-        lendingPool = ProtocolCore(_lendingPool);
+        lendingPool = ProtocolCore(payable(_lendingPool));
         usdc = IERC20(_usdc);
         _transferOwnership(msg.sender);
     }
@@ -130,7 +130,7 @@ contract LiquidationManager is ReentrancyGuard, Ownable {
      * @param _lendingPool New ProtocolCore address
      */
     function setLendingPool(address _lendingPool) external onlyOwner {
-        lendingPool = ProtocolCore(_lendingPool);
+        lendingPool = ProtocolCore(payable(_lendingPool));
     }
 
     // ============ LIQUIDATION FUNCTIONS ============

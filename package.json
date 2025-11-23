@@ -10,8 +10,11 @@
     "test:solidity": "hardhat test solidity",
     "test:coverage": "hardhat test --coverage",
     "deploy": "hardhat ignition deploy",
-    "deploy:base-protocol": "tsx scripts/deploy-base-protocol.ts",
-    "deploy:cross-chain": "tsx scripts/deploy-cross-chain.ts",
+    "deploy:arbitrum": "hardhat ignition deploy ignition/modules/ArbitrumSepolia.ts --network arbitrumSepolia --parameters ignition/parameters/arbitrumSepolia.json",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/Sepolia.ts --network sepolia --parameters ignition/parameters/sepolia.json",
+    "deploy:optimism": "hardhat ignition deploy ignition/modules/OptimismSepolia.ts --network optimismSepolia --parameters ignition/parameters/optimismSepolia.json",
+    "configure:peers": "hardhat run scripts/configure-peers.ts",
+    "convert:address": "tsx scripts/convert-address-to-bytes32.ts",
     "clean": "hardhat clean"
   },
   "keywords": [

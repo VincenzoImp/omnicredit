@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.9.0;
+pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -18,9 +18,11 @@ import {PriceOracle} from "./PriceOracle.sol";
  * @dev Share-based lending pool with credit scoring and omnichain capabilities
  *
  * Architecture:
- * - Lenders deposit USDC from ANY chain, receive shares on Base
- * - Borrowers deposit ETH collateral ONLY on Base, borrow USDC on ANY chain
- * - USDC bridged via LayerZero OFT for seamless cross-chain operations
+ * - Deployed on Arbitrum Sepolia (main protocol)
+ * - Lenders deposit MockUSDC locale su ogni chain (Sepolia, Optimism Sepolia) → ricevono shares su Arbitrum
+ * - Borrowers deposit token nativi (ETH, MATIC, etc.) su qualsiasi chain → collateral aggregato su Arbitrum
+ * - Borrowers possono scegliere su quale chain ricevere MockUSDC quando prendono prestito
+ * - USDC bridged via LayerZero OFT per operazioni cross-chain
  *
  * Key Features:
  * - Progressive LTV (50% → 150%) based on credit score
@@ -28,6 +30,7 @@ import {PriceOracle} from "./PriceOracle.sol";
  * - Interest buffer protects proven borrowers from liquidation
  * - Share-based accounting for fair yield distribution
  * - Full omnichain support via LayerZero V2
+ * - Multi-token native collateral support (ETH, MATIC, etc.)
  */
 contract ProtocolCore is OApp, ReentrancyGuard {
     using OptionsBuilder for bytes;
@@ -46,11 +49,15 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     /// @notice USDCOmnitoken (OFT) for cross-chain USDC bridging
     OFT public usdcOFT;
 
-    /// @notice Borrower ETH collateral (deposited on Base only)
-    mapping(address => uint256) public borrowerCollateral; // Amount of ETH locked (18 decimals)
+    /// @notice Borrower collateral: user => asset => amount
+    /// @dev Supports multiple native tokens (ETH, MATIC, etc.) from any chain
+    mapping(address => mapping(address => uint256)) public borrowerCollateral;
 
-    /// @notice Authorized lender deposit wrappers (one per chain)
-    mapping(uint32 => bytes32) public authorizedDepositWrappers;
+    /// @notice Authorized lender vaults (one per chain)
+    mapping(uint32 => bytes32) public authorizedLenderVaults;
+
+    /// @notice Authorized collateral vaults (one per chain)
+    mapping(uint32 => bytes32) public authorizedCollateralVaults;
 
     /// @notice Pool shares (lender deposits)
     mapping(address => uint256) public shares;
@@ -87,6 +94,12 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     address public liquidationManager;     // Authorized liquidation manager
     uint256 public reserves;               // Protocol reserves from liquidation surplus
 
+    /// @notice Gas limit for _lzReceive execution (configurable)
+    uint256 public lzReceiveGasLimit = 300000;
+
+    /// @notice Gas limit for OFT executor (configurable)
+    uint256 public oftExecutorGasLimit = 200000;
+
     // ============ EVENTS ============
 
     event Deposited(address indexed lender, uint256 amount, uint256 shares);
@@ -95,7 +108,8 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     event Repaid(address indexed borrower, uint256 principal, uint256 interest);
     event InterestAccrued(address indexed borrower, uint256 interest);
     event LiquidationManagerSet(address indexed liquidationManager);
-    event CollateralDeposited(address indexed borrower, uint256 ethAmount, uint256 valueUSD);
+    event CollateralDeposited(address indexed borrower, address indexed asset, uint256 amount, uint256 valueUSD);
+    event CollateralReceivedCrossChain(address indexed borrower, address indexed asset, uint256 amount, uint32 srcEid);
     event CollateralWithdrawn(address indexed borrower, uint256 ethAmount);
     event LiquidationRepaid(address indexed borrower, uint256 amount);
     event ReservesAdded(uint256 amount);
@@ -114,17 +128,15 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     error InsufficientLiquidity();
     error LoanTooSmall();
     error UnauthorizedLiquidation();
-    error UnauthorizedDepositWrapper();
+    error UnauthorizedLenderVault();
+    error UnauthorizedCollateralVault();
     error USDCOTFNotSet();
     error InvalidDestinationEid();
     error Unauthorized();
+    error InvalidGasLimit();
 
     // ============ MODIFIERS ============
-
-    modifier onlyOwner() override {
-        if (msg.sender != owner()) revert Unauthorized();
-        _;
-    }
+    // Note: onlyOwner modifier is inherited from OApp (which inherits from Ownable)
 
     // ============ CONSTRUCTOR ============
 
@@ -164,13 +176,41 @@ contract ProtocolCore is OApp, ReentrancyGuard {
     }
 
     /**
-     * @notice Authorize a lender deposit wrapper on a specific chain
+     * @notice Authorize a lender vault on a specific chain
      * @param eid Endpoint ID of the source chain
-     * @param wrapper Address of LenderDepositWrapper (as bytes32)
+     * @param vault Address of LenderVault (as bytes32)
      */
-    function authorizeDepositWrapper(uint32 eid, bytes32 wrapper) external onlyOwner {
-        authorizedDepositWrappers[eid] = wrapper;
-        emit DepositWrapperAuthorized(eid, wrapper);
+    function authorizeLenderVault(uint32 eid, bytes32 vault) external onlyOwner {
+        authorizedLenderVaults[eid] = vault;
+        emit DepositWrapperAuthorized(eid, vault);
+    }
+
+    /**
+     * @notice Authorize a collateral vault on a specific chain
+     * @param eid Endpoint ID of the source chain
+     * @param vault Address of CollateralVault (as bytes32)
+     */
+    function authorizeCollateralVault(uint32 eid, bytes32 vault) external onlyOwner {
+        authorizedCollateralVaults[eid] = vault;
+        emit DepositWrapperAuthorized(eid, vault);
+    }
+
+    /**
+     * @notice Set gas limit for _lzReceive execution
+     * @param _gasLimit Gas limit for _lzReceive
+     */
+    function setLzReceiveGasLimit(uint256 _gasLimit) external onlyOwner {
+        if (_gasLimit < 100000 || _gasLimit > 1000000) revert InvalidGasLimit();
+        lzReceiveGasLimit = _gasLimit;
+    }
+
+    /**
+     * @notice Set gas limit for OFT executor
+     * @param _gasLimit Gas limit for OFT executor
+     */
+    function setOftExecutorGasLimit(uint256 _gasLimit) external onlyOwner {
+        if (_gasLimit < 100000 || _gasLimit > 1000000) revert InvalidGasLimit();
+        oftExecutorGasLimit = _gasLimit;
     }
 
     // ============ LENDER FUNCTIONS ============
@@ -227,6 +267,63 @@ contract ProtocolCore is OApp, ReentrancyGuard {
 
         // Transfer tokens
         lendingToken.safeTransfer(msg.sender, amountWithdrawn);
+
+        emit Withdrawn(msg.sender, amountWithdrawn, shareAmount);
+    }
+
+    /**
+     * @notice Withdraw USDC cross-chain to any destination chain
+     * @param shareAmount Number of shares to burn
+     * @param dstEid Destination endpoint ID (where lender wants to receive USDC)
+     * @param minAmountLD Minimum amount to receive on destination (for slippage protection)
+     * @dev Burns shares and bridges USDC to destination chain via OFT
+     */
+    function withdrawCrossChain(
+        uint256 shareAmount,
+        uint32 dstEid,
+        uint256 minAmountLD
+    ) external payable nonReentrant {
+        if (shareAmount == 0) revert InvalidAmount();
+        if (shares[msg.sender] < shareAmount) revert InvalidAmount();
+        if (address(usdcOFT) == address(0)) revert USDCOTFNotSet();
+        if (dstEid == 0) revert InvalidDestinationEid();
+
+        // Calculate withdrawal amount
+        uint256 poolValue = totalDeposits + totalBorrowed;
+        uint256 amountWithdrawn = (shareAmount * poolValue) / totalShares;
+
+        // Check liquidity
+        if (lendingToken.balanceOf(address(this)) < amountWithdrawn) {
+            revert InsufficientLiquidity();
+        }
+
+        // Update state
+        shares[msg.sender] -= shareAmount;
+        totalShares -= shareAmount;
+        totalDeposits -= amountWithdrawn;
+
+        // Bridge USDC to destination chain via OFT
+        bytes memory oftOptions = OptionsBuilder.newOptions();
+        oftOptions.addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0);
+        
+        SendParam memory sendParam = SendParam({
+            dstEid: dstEid,
+            to: addressToBytes32(msg.sender), // Send to lender on destination
+            amountLD: amountWithdrawn,
+            minAmountLD: minAmountLD,
+            extraOptions: oftOptions,
+            composeMsg: "",
+            oftCmd: ""
+        });
+
+        // Approve OFT to spend USDC
+        lendingToken.safeApprove(address(usdcOFT), amountWithdrawn);
+
+        // Quote OFT fee
+        MessagingFee memory oftFee = usdcOFT.quoteSend(sendParam, false);
+
+        // Send USDC to destination chain (user must provide fee)
+        usdcOFT.send{value: oftFee.nativeFee}(sendParam, oftFee, payable(msg.sender));
 
         emit Withdrawn(msg.sender, amountWithdrawn, shareAmount);
     }
@@ -403,8 +500,7 @@ contract ProtocolCore is OApp, ReentrancyGuard {
             amountLD: amount,
             minAmountLD: minAmountLD,
             extraOptions: OptionsBuilder.newOptions()
-                .addExecutorLzReceiveOption(200000, 0)
-                .toBytes(),
+                .addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0), // Use configurable gas limit
             composeMsg: "",
             oftCmd: ""
         });
@@ -496,9 +592,9 @@ contract ProtocolCore is OApp, ReentrancyGuard {
         address /* _executor */,
         bytes calldata /* _extraData */
     ) internal override {
-        // Verify sender is authorized deposit wrapper
-        if (authorizedDepositWrappers[_origin.srcEid] != _origin.sender) {
-            revert UnauthorizedDepositWrapper();
+        // Verify sender is authorized lender vault
+        if (authorizedLenderVaults[_origin.srcEid] != _origin.sender) {
+            revert UnauthorizedLenderVault();
         }
 
         // Decode message
@@ -508,8 +604,14 @@ contract ProtocolCore is OApp, ReentrancyGuard {
         );
 
         require(messageType == 1, "Invalid message type"); // Type 1 = DEPOSIT
+        if (amount == 0) revert InvalidAmount(); // ✅ Validazione amount aggiunta
 
-        // Process deposit (USDC already bridged via OFT, so it's in this contract)
+        // Process deposit (USDC already bridged via OFT directly to this contract)
+        // Verify USDC balance (should have been minted by OFT)
+        if (lendingToken.balanceOf(address(this)) < amount) {
+            revert InsufficientLiquidity();
+        }
+
         // Calculate shares
         uint256 sharesIssued;
         if (totalShares == 0) {
@@ -529,9 +631,8 @@ contract ProtocolCore is OApp, ReentrancyGuard {
 
         // Send confirmation back to wrapper (optional, for refund handling)
         bytes memory responsePayload = abi.encode(uint8(2), guid, true); // Type 2 = DEPOSIT_CONFIRMATION
-        bytes memory options = OptionsBuilder.newOptions()
-            .addExecutorLzReceiveOption(200000, 0)
-            .toBytes();
+        bytes memory options = OptionsBuilder.newOptions();
+        options.addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0); // Use configurable gas limit
 
         MessagingFee memory fee = _quote(_origin.srcEid, responsePayload, options, false);
         _lzSend(_origin.srcEid, responsePayload, options, fee, payable(address(this)));
@@ -757,8 +858,7 @@ contract ProtocolCore is OApp, ReentrancyGuard {
             amountLD: amount,
             minAmountLD: minAmountLD,
             extraOptions: OptionsBuilder.newOptions()
-                .addExecutorLzReceiveOption(200000, 0)
-                .toBytes(),
+                .addExecutorLzReceiveOption(uint128(oftExecutorGasLimit), 0), // Use configurable gas limit
             composeMsg: "",
             oftCmd: ""
         });
