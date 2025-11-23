@@ -40,6 +40,16 @@ const MOCKUSDC_ABI = [
     stateMutability: 'view',
     type: 'function',
   },
+  {
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' }
+    ],
+    name: 'allowance',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 const PROTOCOL_CORE_ABI = [
@@ -81,6 +91,18 @@ export default function LenderPanel() {
     abi: MOCKUSDC_ABI,
     functionName: 'balanceOf',
     args: address ? [address] : undefined,
+    chainId: arbitrumSepolia.id,
+    query: {
+      enabled: isOnArbitrum && !!address,
+    },
+  });
+
+  // Get current allowance
+  const { data: currentAllowance, refetch: refetchAllowance } = useReadContract({
+    address: isOnArbitrum ? getAddress('arbitrumSepolia', 'mockUSDC') : undefined,
+    abi: MOCKUSDC_ABI,
+    functionName: 'allowance',
+    args: address ? [address, getAddress('arbitrumSepolia', 'protocolCore')] : undefined,
     chainId: arbitrumSepolia.id,
     query: {
       enabled: isOnArbitrum && !!address,
@@ -197,14 +219,60 @@ export default function LenderPanel() {
   const handleDeposit = async () => {
     if (!amount || !isOnArbitrum || !address) return;
     
-    const toastId = toast.loading('Preparing transaction...');
+    const toastId = toast.loading('Checking approval...');
     
     try {
       const amountBN = parseUnits(amount, 6);
+      const protocolCoreAddress = getAddress('arbitrumSepolia', 'protocolCore');
       
+      // Check if approval is needed
+      const allowance = currentAllowance || 0n;
+      
+      if (allowance < amountBN) {
+        // Need to approve first
+        toast.loading('Approving USDC... (1/2)', { id: toastId });
+        
+        try {
+          const approveHash = await writeContractAsync({
+            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            abi: MOCKUSDC_ABI,
+            functionName: 'approve',
+            args: [protocolCoreAddress, amountBN],
+            chainId: arbitrumSepolia.id,
+          });
+          
+          toast.loading('Waiting for approval confirmation...', { id: toastId });
+          
+          // Wait for approval to be mined
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await refetchAllowance();
+          
+          toast.loading('Approval confirmed! Now depositing... (2/2)', { id: toastId });
+        } catch (approveError: any) {
+          // Try with manual gas
+          console.warn('Approval gas estimation failed, using manual limit');
+          const approveHash = await writeContractAsync({
+            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            abi: MOCKUSDC_ABI,
+            functionName: 'approve',
+            args: [protocolCoreAddress, amountBN],
+            chainId: arbitrumSepolia.id,
+            gas: 100000n,
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await refetchAllowance();
+          
+          toast.loading('Approval confirmed! Now depositing... (2/2)', { id: toastId });
+        }
+      } else {
+        toast.loading('Depositing USDC...', { id: toastId });
+      }
+      
+      // Now deposit
       try {
         const hash = await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'deposit',
           args: [amountBN],
@@ -212,13 +280,12 @@ export default function LenderPanel() {
         });
         
         toast.dismiss(toastId);
-        toast.loading('Waiting for confirmation...', { id: hash });
+        toast.loading('Waiting for deposit confirmation...', { id: hash });
       } catch (estimationError: any) {
         console.warn('Gas estimation failed, using manual limit:', estimationError);
-        toast.loading('Retrying with manual gas limit...', { id: toastId });
         
         const hash = await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'deposit',
           args: [amountBN],
@@ -227,7 +294,7 @@ export default function LenderPanel() {
         });
         
         toast.dismiss(toastId);
-        toast.loading('Waiting for confirmation...', { id: hash });
+        toast.loading('Waiting for deposit confirmation...', { id: hash });
       }
     } catch (error: any) {
       toast.dismiss(toastId);
@@ -284,21 +351,13 @@ export default function LenderPanel() {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <button
             onClick={handleMint}
             disabled={isProcessing || !amount || !isOnArbitrum}
             className="px-4 py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
           >
-            {isProcessing ? '⏳' : 'Mint'}
-          </button>
-          
-          <button
-            onClick={handleApprove}
-            disabled={isProcessing || !amount || !isOnArbitrum}
-            className="px-4 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
-          >
-            {isProcessing ? '⏳' : 'Approve'}
+            {isProcessing ? '⏳' : 'Mint USDC'}
           </button>
           
           <button
@@ -312,8 +371,8 @@ export default function LenderPanel() {
 
         <div className="text-white/60 text-xs mt-4 space-y-1">
           <p>1️⃣ Mint free MockUSDC (testnet only)</p>
-          <p>2️⃣ Approve ProtocolCore to spend your USDC</p>
-          <p>3️⃣ Deposit USDC to start earning yield</p>
+          <p>2️⃣ Deposit USDC (approval is automatic if needed)</p>
+          <p>💡 The deposit button will approve + deposit in one click!</p>
         </div>
       </div>
     </div>

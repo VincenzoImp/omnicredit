@@ -22,6 +22,29 @@ const COLLATERAL_VAULT_ABI = [
   },
 ] as const;
 
+const MOCKUSDC_ABI = [
+  {
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    name: 'approve',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' }
+    ],
+    name: 'allowance',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+] as const;
+
 const PROTOCOL_CORE_ABI = [
   {
     inputs: [
@@ -73,6 +96,18 @@ export default function BorrowerPanel() {
   const { data: baseBalance, refetch: refetchBaseBalance } = useBalance({
     address,
     chainId: baseSepolia.id,
+  });
+
+  // Get current USDC allowance for repay
+  const { data: currentAllowance, refetch: refetchAllowance } = useReadContract({
+    address: isOnArbitrum ? getAddress('arbitrumSepolia', 'mockUSDC') : undefined,
+    abi: MOCKUSDC_ABI,
+    functionName: 'allowance',
+    args: address ? [address, getAddress('arbitrumSepolia', 'protocolCore')] : undefined,
+    chainId: arbitrumSepolia.id,
+    query: {
+      enabled: isOnArbitrum && !!address,
+    },
   });
 
   // Handle transaction success
@@ -197,14 +232,60 @@ export default function BorrowerPanel() {
   const handleRepay = async () => {
     if (!repayAmount || !isOnArbitrum || !address) return;
     
-    const toastId = toast.loading('Preparing transaction...');
+    const toastId = toast.loading('Checking approval...');
     
     try {
       const amountBN = parseUnits(repayAmount, 6);
+      const protocolCoreAddress = getAddress('arbitrumSepolia', 'protocolCore');
       
+      // Check if approval is needed
+      const allowance = currentAllowance || 0n;
+      
+      if (allowance < amountBN) {
+        // Need to approve first
+        toast.loading('Approving USDC... (1/2)', { id: toastId });
+        
+        try {
+          const approveHash = await writeContractAsync({
+            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            abi: MOCKUSDC_ABI,
+            functionName: 'approve',
+            args: [protocolCoreAddress, amountBN],
+            chainId: arbitrumSepolia.id,
+          });
+          
+          toast.loading('Waiting for approval confirmation...', { id: toastId });
+          
+          // Wait for approval to be mined
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await refetchAllowance();
+          
+          toast.loading('Approval confirmed! Now repaying... (2/2)', { id: toastId });
+        } catch (approveError: any) {
+          // Try with manual gas
+          console.warn('Approval gas estimation failed, using manual limit');
+          const approveHash = await writeContractAsync({
+            address: getAddress('arbitrumSepolia', 'mockUSDC'),
+            abi: MOCKUSDC_ABI,
+            functionName: 'approve',
+            args: [protocolCoreAddress, amountBN],
+            chainId: arbitrumSepolia.id,
+            gas: 100000n,
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          await refetchAllowance();
+          
+          toast.loading('Approval confirmed! Now repaying... (2/2)', { id: toastId });
+        }
+      } else {
+        toast.loading('Repaying loan...', { id: toastId });
+      }
+      
+      // Now repay
       try {
         const hash = await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'repay',
           args: [amountBN],
@@ -212,13 +293,12 @@ export default function BorrowerPanel() {
         });
         
         toast.dismiss(toastId);
-        toast.loading('Waiting for confirmation...', { id: hash });
+        toast.loading('Waiting for repayment confirmation...', { id: hash });
       } catch (estimationError: any) {
         console.warn('Gas estimation failed, using manual limit:', estimationError);
-        toast.loading('Retrying with manual gas limit...', { id: toastId });
         
         const hash = await writeContractAsync({
-          address: getAddress('arbitrumSepolia', 'protocolCore'),
+          address: protocolCoreAddress,
           abi: PROTOCOL_CORE_ABI,
           functionName: 'repay',
           args: [amountBN],
@@ -227,7 +307,7 @@ export default function BorrowerPanel() {
         });
         
         toast.dismiss(toastId);
-        toast.loading('Waiting for confirmation...', { id: hash });
+        toast.loading('Waiting for repayment confirmation...', { id: hash });
       }
     } catch (error: any) {
       toast.dismiss(toastId);
@@ -358,7 +438,7 @@ export default function BorrowerPanel() {
               {isProcessing ? '⏳' : 'Repay'}
             </button>
           </div>
-          <p className="text-white/50 text-xs mt-1">Approve USDC first in Lender panel</p>
+          <p className="text-white/50 text-xs mt-1">Approval is automatic if needed</p>
         </div>
       </div>
     </div>
