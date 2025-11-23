@@ -470,39 +470,26 @@ export default function BorrowerPanel({
         </div>
       ) : (
         <div className="space-y-6">
-        {/* Deposit Collateral */}
-        <div>
-          <label className="block text-white font-semibold mb-2">
-            1️⃣ Deposit Collateral (ETH on {selectedChainName})
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              value={collateralAmount}
-              onChange={(e) => setCollateralAmount(e.target.value)}
-              placeholder="0.001"
-              disabled={isProcessing}
-              className="flex-1 px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-50"
-            />
-            <button
-              onClick={handleDepositCollateral}
-              disabled={isProcessing || !collateralAmount}
-              className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors whitespace-nowrap"
-            >
-              {isProcessing ? '⏳' : 'Deposit'}
-            </button>
-          </div>
+        
+        {/* Arbitrum Info Message */}
+        <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 mb-4">
+            <p className="text-blue-200 text-sm">
+                ℹ️ <strong>Collateral Management:</strong> Please switch to a Satellite Chain (Base, Optimism) to deposit collateral.
+            </p>
         </div>
 
         {/* Borrow with Destination Selector */}
         <div>
           <label className="block text-white font-semibold mb-2">
-            2️⃣ Borrow USDC
+            1️⃣ Borrow USDC
           </label>
           
           <div className="bg-purple-500/20 border border-purple-500/50 rounded-lg p-3 mb-3">
             <p className="text-purple-200 text-sm">
               Available Collateral (on Hub): <span className="font-bold">${parseFloat(formattedCollateralValue).toFixed(2)}</span>
+            </p>
+            <p className="text-purple-200 text-xs mt-1">
+               (Deposits from satellite chains may take 1-2 mins to appear here)
             </p>
           </div>
 
@@ -566,7 +553,7 @@ export default function BorrowerPanel({
         {/* Repay */}
         <div>
           <label className="block text-white font-semibold mb-2">
-            3️⃣ Repay Loan
+            2️⃣ Repay Loan
           </label>
           <div className="flex gap-2">
             <input
