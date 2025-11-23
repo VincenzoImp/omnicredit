@@ -14,7 +14,10 @@ import toast from 'react-hot-toast';
 
 const MOCKUSDC_ABI = [
   {
-    inputs: [{ name: 'amount', type: 'uint256' }],
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
     name: 'mint',
     outputs: [],
     stateMutability: 'nonpayable',
@@ -119,7 +122,7 @@ export default function LenderPanel() {
           address: getAddress('arbitrumSepolia', 'mockUSDC'),
           abi: MOCKUSDC_ABI,
           functionName: 'mint',
-          args: [amountBN],
+          args: [address, amountBN],
           chainId: arbitrumSepolia.id,
         });
         
@@ -134,7 +137,7 @@ export default function LenderPanel() {
           address: getAddress('arbitrumSepolia', 'mockUSDC'),
           abi: MOCKUSDC_ABI,
           functionName: 'mint',
-          args: [amountBN],
+          args: [address, amountBN],
           chainId: arbitrumSepolia.id,
           gas: 200000n,
         });
